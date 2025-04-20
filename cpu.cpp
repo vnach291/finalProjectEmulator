@@ -3,8 +3,9 @@
 /////////////////////////////Clock
 uint64_t clock_cycle = 0;
 
-/////////////////////////////Memory
-//TODO
+/////////////////////////////Memory (64KB)
+char[0x10000] mem;
+//TODO setup special addresses as macros
 
 /////////////////////////////Registers/Flags
 uint16_t pc;
@@ -22,38 +23,56 @@ uint8_t rSR;
 #define fC rSR[7]
 
 /////////////////////////////Addressing 
-char get_from_mem(uint16_t addr){
-    //read other values for instructions
-}
 uint16_t get_imm(){
     //immediate
+    return mem[pc+1];
 }
 uint16_t get_rel(){
     //relative
+    uint16_t res = ((int16_t)pc)+((int8_t)mem[pc+1]);
+    if(res>>8 != pc>>8) inst_cycles++;
+    return res;
 }
 uint16_t get_zpg(){
     //zero page
+    return mem[pc+1];
 }
 uint16_t get_zpg_X(){
     //zero page X index
+    return (mem[pc+1] + rX) % 0xff;
 }
 uint16_t get_zpg_Y(){
     //zero page Y index
+    return (mem[pc+1] + rY) % 0xff;
 }
 uint16_t get_X_ind(){
     //indirect X pre-index
+    return mem[(mem[pc+1] + rX + 1) % 0xff]<<8 + mem[(mem[pc+1] + rX) % 0xff];
 }
 uint16_t get_ind_Y(){
     //indirect Y post-index
+    uint16_t res1 = mem[(mem[pc+1] + 1) % 0xff]<<8 + mem[mem[pc+1]];
+    uint16_t res2 = res1 + rY;
+    if(res1>>8 != res2>>8) inst_cycles++;
+    return res2;
 }
 uint16_t get_abs(){
     //absolute
+    return mem[pc+2]<<8 + mem[pc+1];
 }
 uint16_t get_abs_X(){
     //absolute X index
+    uint16_t res1 = mem[pc+2]<<8 + mem[pc+1];
+    uint16_t res2 = res1 + rX;
+    if(res1>>8 != res2>>8) inst_cycles++;
+    return res2;
 }
 uint16_t get_abs_Y(){
     //absolute Y index
+    uint16_t res1 = mem[pc+2]<<8 + mem[pc+1] + rY;
+    uint16_t res2 = res1 + rY;
+    if(res1>>8 != res2>>8) inst_cycles++;
+    return res2;
 }
 
 ////////////////////////////aaabbb00 Instructions
@@ -616,10 +635,16 @@ void INC(int mode){
 int inst_cycles;
 int run(){
     while(true){
+        //Get instruction
         char inst = get_from_memory(pc);
         char inst_a = inst >> 5;
         char inst_b = (inst >> 2) & 0b111;
         char inst_c = inst & 0b11;
+
+        //Set cycle cost to 0
+        inst_cycles = 0;
+
+        //Perform instruction
         switch(inst_c){
             case 0:
                 switch(inst_a){
@@ -711,6 +736,8 @@ int run(){
 
         //Update instruction/clock
         clock_cycle += inst_cycles;
+
+        //TODO check for interrupts
     }
     return 0;
 }
