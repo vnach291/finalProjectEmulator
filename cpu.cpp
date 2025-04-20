@@ -9,30 +9,34 @@ char[0x10000] mem;
 
 /////////////////////////////Registers/Flags
 uint16_t pc;
-uint8_t rA;
-uint8_t rX;
-uint8_t rY;
-uint8_t rSP;
-uint8_t rSR;
-#define fN rSR[0]
-#define fV rSR[1]
-#define fB rSR[3]
-#define fD rSR[4]
-#define fI rSR[5]
-#define fZ rSR[6]
-#define fC rSR[7]
+uint8_t A;
+uint8_t X;
+uint8_t Y;
+uint8_t SP;
+uint8_t N;
+uint8_t V;
+uint8_t B;
+uint8_t D;
+uint8_t I;
+uint8_t Z;
+uint8_t C;
+#define SR (N<<7 + V<<6 + B<<4 + D<<3 + I<<2 + Z<<1 + C<<0)
 
 //Helper functions
 uint16_t read_pair(uint16_t addr) {
     return mem[addr+1]<<8 + mem[addr];
 }
 void push(uint8_t val) {
-    mem[rSP] = val;
-    rSP-=2;
+    mem[SP] = val;
+    SP-=1;
+}
+void push_pair(uint16_t val) {
+    push((uint8_t)(val>>8));
+    push((uint8_t)val);
 }
 uint8_t pop() {
-    rSP+=2;
-    return mem[rSP];
+    SP+=1;
+    return mem[SP];
 }
 
 /////////////////////////////Addressing 
@@ -52,20 +56,20 @@ uint16_t get_zpg(){
 }
 uint16_t get_zpg_X(){
     //zero page X index
-    return (mem[pc+1] + rX) % 0xff;
+    return (mem[pc+1] + X) % 0xff;
 }
 uint16_t get_zpg_Y(){
     //zero page Y index
-    return (mem[pc+1] + rY) % 0xff;
+    return (mem[pc+1] + Y) % 0xff;
 }
 uint16_t get_X_ind(){
     //indirect X pre-index
-    return mem[(mem[pc+1] + rX + 1) % 0xff]<<8 + mem[(mem[pc+1] + rX) % 0xff];
+    return mem[(mem[pc+1] + X + 1) % 0xff]<<8 + mem[(mem[pc+1] + X) % 0xff];
 }
 uint16_t get_ind_Y(){
     //indirect Y post-index
     uint16_t res1 = mem[(mem[pc+1] + 1) % 0xff]<<8 + mem[mem[pc+1]];
-    uint16_t res2 = res1 + rY;
+    uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
@@ -76,14 +80,14 @@ uint16_t get_abs(){
 uint16_t get_abs_X(){
     //absolute X index
     uint16_t res1 = mem[pc+2]<<8 + mem[pc+1];
-    uint16_t res2 = res1 + rX;
+    uint16_t res2 = res1 + X;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
 uint16_t get_abs_Y(){
     //absolute Y index
-    uint16_t res1 = mem[pc+2]<<8 + mem[pc+1] + rY;
-    uint16_t res2 = res1 + rY;
+    uint16_t res1 = mem[pc+2]<<8 + mem[pc+1] + Y;
+    uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
@@ -94,16 +98,32 @@ void BRK(int mode){
         case 0:
             //BRK impl
             inst_cycles += 7;
-            fB = 1;
+            I = 1;
+            push_pair(pc+2);
+            push(SR | 0b00010000);
+            pc = read_pair(0xfffe);
             break;
         case 2:
             //PHP impl
+            inst_cycles += 3;
+            push(SR | 0b00110000);
+            pc = pc+1;
             break;
         case 4:
             //BPL rel
+            inst_cycles += 2;
+            if(N == 0){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+1;
+            }
             break;
         case 6:
             //CLC impl
+            inst_cycles += 2;
+            C = 0;
+            pc = pc+1;
             break;
     }
 }
@@ -111,9 +131,19 @@ void JSR(int mode){
     switch(mode){
         case 0:
             //JSR abs
+            inst_cycles += 6;
+            push_pair(pc+2);
+            pc = get_abs();
             break;
         case 1:
             //BIT zpg
+            inst_cycles += 3;
+            uint8_t op = get_zpg();
+            N = (op>>7&1);
+            V = (op>>6&1);
+            Z = (A & op) == 0;
+            push_pair(pc+2);
+            pc = get_abs();
             break;
         case 2:
             //PLP impl
@@ -752,7 +782,7 @@ int run(){
         //Update instruction/clock
         clock_cycle += inst_cycles;
 
-        //TODO check for interrupts
+        //TODO check for interrupts (take into account extra cycle special case)
     }
     return 0;
 }
