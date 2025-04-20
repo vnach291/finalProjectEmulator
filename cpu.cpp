@@ -613,12 +613,14 @@ void INC(int mode){
 }
 
 /////////////////////////////Execute program
+std::uint16_t new_pc;
+int inst_cycles;
 int run(){
 
-    std::uint16_t inst = 0x00;
-    std::uint8_t inst_a = inst >> 5;
-    std::uint8_t inst_b = (inst >> 2) & 0b111;
-    std::uint8_t inst_c = inst & 0b11;
+    char inst = 0x00;
+    char inst_a = inst >> 5;
+    char inst_b = (inst >> 2) & 0b111;
+    char inst_c = inst & 0b11;
     while(true){
         switch(inst_c){
             case 0:
@@ -709,7 +711,11 @@ int run(){
                 break;
         }
     }
-
+    clock_cycle += inst_cycles;
+    inst = get_from_memory(new_pc);
+    inst_a = inst >> 5;
+    inst_b = (inst >> 2) & 0b111;
+    inst_c = inst & 0b11;
     return 0;
 }
 
