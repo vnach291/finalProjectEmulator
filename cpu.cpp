@@ -613,15 +613,13 @@ void INC(int mode){
 }
 
 /////////////////////////////Execute program
-std::uint16_t new_pc;
 int inst_cycles;
 int run(){
-
-    char inst = 0x00;
-    char inst_a = inst >> 5;
-    char inst_b = (inst >> 2) & 0b111;
-    char inst_c = inst & 0b11;
     while(true){
+        char inst = get_from_memory(pc);
+        char inst_a = inst >> 5;
+        char inst_b = (inst >> 2) & 0b111;
+        char inst_c = inst & 0b11;
         switch(inst_c){
             case 0:
                 switch(inst_a){
@@ -710,12 +708,10 @@ int run(){
                 }
                 break;
         }
+
+        //Update instruction/clock
+        clock_cycle += inst_cycles;
     }
-    clock_cycle += inst_cycles;
-    inst = get_from_memory(new_pc);
-    inst_a = inst >> 5;
-    inst_b = (inst >> 2) & 0b111;
-    inst_c = inst & 0b11;
     return 0;
 }
 
