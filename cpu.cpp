@@ -22,6 +22,19 @@ uint8_t rSR;
 #define fZ rSR[6]
 #define fC rSR[7]
 
+//Helper functions
+uint16_t read_pair(uint16_t addr) {
+    return mem[addr+1]<<8 + mem[addr];
+}
+void push(uint8_t val) {
+    mem[rSP] = val;
+    rSP-=2;
+}
+uint8_t pop() {
+    rSP+=2;
+    return mem[rSP];
+}
+
 /////////////////////////////Addressing 
 uint16_t get_imm(){
     //immediate
@@ -80,6 +93,8 @@ void BRK(int mode){
     switch(mode){
         case 0:
             //BRK impl
+            inst_cycles += 7;
+            fB = 1;
             break;
         case 2:
             //PHP impl
