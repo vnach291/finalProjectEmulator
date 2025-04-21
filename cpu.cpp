@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <string>
 
 /////////////////////////////Clock
 uint64_t clock_cycle = 0;
@@ -1008,10 +1009,18 @@ int run(){
     return 0;
 }
 
+/////////////////////////////ROM Loading
+void loadROM(std::ifstream file){
+    for(){
+        
+    }
+}
+
 int main(int argc, char *argv[]) {
 
     //Load ROM
-    //TODO
+    std::string file_name = argv[1];
+    stf::ifstream ROM_file(file_name);
 
     //Execute
     return run();
