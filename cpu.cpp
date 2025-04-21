@@ -34,9 +34,26 @@ void push_pair(uint16_t val) {
     push((uint8_t)(val>>8));
     push((uint8_t)val);
 }
-uint8_t pop() {
+uint8_t pull() {
     SP+=1;
     return mem[SP];
+}
+void pull_SR() {
+    uint8_t res = pull();
+    N = (res>>7)&1;
+    V = (res>>6)&1;
+    D = (res>>3)&1;
+    I = (res>>2)&1;
+    Z = (res>>1)&1;
+    C = (res>>0)&1;
+}
+void pull_pair() {
+    uint16_t res = pull();
+    res |= ((uint16_t) pull())<<8;
+}
+void set_NZ(uint8_t val){
+    N = (val>>7) ? 1 : 0;
+    Z = val ? 0 : 1;
 }
 
 /////////////////////////////Addressing 
@@ -138,24 +155,42 @@ void JSR(int mode){
         case 1:
             //BIT zpg
             inst_cycles += 3;
-            uint8_t op = get_zpg();
+            uint8_t op = mem[get_zpg()];
             N = (op>>7&1);
             V = (op>>6&1);
-            Z = (A & op) == 0;
-            push_pair(pc+2);
-            pc = get_abs();
+            Z = (A & op) ? 1 : 0;
+            pc = pc+1;
             break;
         case 2:
             //PLP impl
+            inst_cycles += 4;
+            pull_SR();
+            pc = pc+1;
             break;
         case 3:
             //BIT abs
+            inst_cycles += 4;
+            uint8_t op = mem[get_abs()];
+            N = (op>>7&1);
+            V = (op>>6&1);
+            Z = (A & op) ? 1 : 0;
+            pc = pc+1;
             break;
         case 4:
             //BMI rel
+            inst_cycles += 2;
+            if(N == 1){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+1;
+            }
             break;
         case 6:
             //SEC impl
+            inst_cycles += 2;
+            C = 1;
+            pc = pc+1;
             break;
     }
 }
@@ -163,18 +198,36 @@ void RTI(int mode){
     switch(mode){
         case 0:
             //RTI impl
+            inst_cycles += 6;
+            pull_SR();
+            pc = pull_pair();
             break;
         case 2:
             //PHA impl
+            inst_cycles += 3;
+            push(A);
+            pc = pc+1;
             break;
         case 3:
             //JMP abs
+            inst_cycles += 3;
+            pc = get_abs();
             break;
         case 4:
             //BVC rel
+            inst_cycles += 2;
+            if(V == 0){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+1;
+            }
             break;
         case 6:
             //CLI impl
+            inst_cycles += 2;
+            I = 0;
+            pc = pc+1;
             break;
     }
 }
@@ -182,18 +235,37 @@ void RTS(int mode){
     switch(mode){
         case 0:
             //RTS impl
+            inst_cycles += 6;
+            pc = pull_pair()+1;
             break;
         case 2:
             //PLA impl
+            inst_cycles += 4;
+            A = pull();
+            N = (A>>7) ? 1 : 0;
+            Z = A ? 0 : 1;
+            pc = pc+1;
             break;
         case 3:
             //JMP ind
+            inst_cycles += 5;
+            pc = mem[get_abs()];
             break;
         case 4:
             //BVS rel
+            inst_cycles += 2;
+            if(V == 1){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+1;
+            }
             break;
         case 6:
             //SEI impl
+            inst_cycles += 2;
+            I = 1;
+            pc = pc+1;
             break;
     }
 }
@@ -201,18 +273,37 @@ void STY(int mode){
     switch(mode){
         case 1:
             //STY zpg
+            inst_cycles += 3;
+            mem[get_zpg()] = Y;
+            pc = pc+1;
             break;
         case 2:
             //DEY impl
+            inst_cycles += 2;
+            Y = Y-1;
+            pc = pc+1;
             break;
         case 3:
             //STY abs
+            inst_cycles += 4;
+            mem[get_abs()] = Y;
+            pc = pc+1;
             break;
         case 4:
             //BCC rel
+            inst_cycles += 2;
+            if(C == 0){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+1;
+            }
             break;
         case 5:
             //STY zpg,X
+            inst_cycles += 4;
+            mem[get_zpg_X()] = Y;
+            pc = pc+1;
             break;
         case 6:
             //TYA impl
