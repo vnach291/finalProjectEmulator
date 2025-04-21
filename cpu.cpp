@@ -1,31 +1,22 @@
 #include <cstdint>
 #include <string>
 #include <fstream>
+#include <stdio.h>
 
 /////////////////////////////Clock
 uint64_t clock_cycle = 0;
+int inst_cycles = 0;
 
 /////////////////////////////Memory (64KB)
 char mem[0x10000];
+void write_mem(uint16_t addr, char v){
+    mem[addr] = v;
+    //TODO handle special stuff
+}
 //TODO setup special addresses as macros
 
 /////////////////////////////VRAM
 char VRAM[0x2000];
-
-/////////////////////////////Registers/Flags
-uint16_t pc;
-uint8_t A;
-uint8_t X;
-uint8_t Y;
-uint8_t SP;
-uint8_t N;
-uint8_t V;
-uint8_t B;
-uint8_t D;
-uint8_t I;
-uint8_t Z;
-uint8_t C;
-#define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
 
 //Interrupt signals
 bool NMI_signal;
@@ -35,6 +26,21 @@ bool special_interrupt;
 #define NMI_addr 0xfffa
 #define RES_addr 0xfffc
 #define IRQ_addr 0xfffe
+
+/////////////////////////////Registers/Flags
+uint16_t pc;
+uint8_t A;
+uint8_t X;
+uint8_t Y;
+uint8_t SP = 0xff;
+uint8_t N;
+uint8_t V;
+uint8_t B;
+uint8_t D;
+uint8_t I;
+uint8_t Z;
+uint8_t C;
+#define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
 
 //Helper functions
 uint16_t read_pair(uint16_t addr) {
@@ -64,6 +70,7 @@ void pull_SR() {
 uint16_t pull_pair() {
     uint16_t res = pull();
     res |= ((uint16_t) pull())<<8;
+    return res;
 }
 void set_NZ(uint8_t val){
     N = (val>>7) ? 1 : 0;
@@ -136,7 +143,7 @@ void BRK(int mode){
             I = 1;
             push_pair(pc+2);
             push(SR | 0b00010000);
-            pc = read_pair(NMI_addr);
+            pc = read_pair(IRQ_addr);
             break;
         case 2:
             //PHP impl
@@ -164,6 +171,7 @@ void BRK(int mode){
     }
 }
 void JSR(int mode){
+    uint8_t op;
     switch(mode){
         case 0:
             //JSR abs
@@ -174,7 +182,7 @@ void JSR(int mode){
         case 1:
             //BIT zpg
             inst_cycles += 3;
-            uint8_t op = mem[get_zpg()];
+            op = mem[get_zpg()];
             N = (op>>7)&1;
             V = (op>>6)&1;
             Z = (A & op) ? 1 : 0;
@@ -189,7 +197,7 @@ void JSR(int mode){
         case 3:
             //BIT abs
             inst_cycles += 4;
-            uint8_t op = mem[get_abs()];
+            op = mem[get_abs()];
             N = (op>>7)&1;
             V = (op>>6)&1;
             Z = (A & op) ? 1 : 0;
@@ -397,12 +405,14 @@ void LDY(int mode){
     }
 }
 void CPY(int mode){
+    uint8_t imm;
+    uint8_t res;
     switch(mode){
         case 0:
             //CPY #
             inst_cycles += 2;
-            uint8_t imm = get_imm();
-            uint8_t res = Y - imm;
+            imm = get_imm();
+            res = Y - imm;
             set_NZ(res);
             C = (Y >= imm) ? 1 : 0;
             pc = pc+2;
@@ -410,8 +420,8 @@ void CPY(int mode){
         case 1:
             //CPY zpg
             inst_cycles += 3;
-            uint8_t imm = mem[get_zpg()];
-            uint8_t res = Y - imm;
+            imm = mem[get_zpg()];
+            res = Y - imm;
             set_NZ(res);
             C = (Y >= imm) ? 1 : 0;
             pc = pc+2;
@@ -426,8 +436,8 @@ void CPY(int mode){
         case 3:
             //CPY abs
             inst_cycles += 4;
-            uint8_t imm = mem[get_abs()];
-            uint8_t res = Y - imm;
+            imm = mem[get_abs()];
+            res = Y - imm;
             set_NZ(res);
             C = (Y >= imm) ? 1 : 0;
             pc = pc+3;
@@ -451,12 +461,14 @@ void CPY(int mode){
     }
 }
 void CPX(int mode){
+    uint8_t imm;
+    uint8_t res;
     switch(mode){
         case 0:
             //CPX #
             inst_cycles += 2;
-            uint8_t imm = get_imm();
-            uint8_t res = X - imm;
+            imm = get_imm();
+            res = X - imm;
             set_NZ(res);
             C = (X >= imm) ? 1 : 0;
             pc = pc+2;
@@ -464,8 +476,8 @@ void CPX(int mode){
         case 1:
             //CPX zpg
             inst_cycles += 3;
-            uint8_t imm = mem[get_zpg()];
-            uint8_t res = X - imm;
+            imm = mem[get_zpg()];
+            res = X - imm;
             set_NZ(res);
             C = (X >= imm) ? 1 : 0;
             pc = pc+2;
@@ -480,8 +492,8 @@ void CPX(int mode){
         case 3:
             //CPX abs
             inst_cycles += 4;
-            uint8_t imm = mem[get_abs()];
-            uint8_t res = X - imm;
+            imm = mem[get_abs()];
+            res = X - imm;
             set_NZ(res);
             C = (X >= imm) ? 1 : 0;
             pc = pc+3;
@@ -1102,10 +1114,11 @@ void INC(int mode){
     }
 }
 
+int tester=10;
 /////////////////////////////Execute program
-int inst_cycles;
 int run(){
     while(true){
+        printf("%x %02x\n", pc, (unsigned)(unsigned char)mem[pc]);
         //Get instruction
         char inst = mem[pc];
         char inst_a = inst >> 5;
@@ -1217,18 +1230,23 @@ int run(){
             //Update stack
             push_pair(pc);
             push(SR);
+            I = 1;
 
             //Do jump
             if(NMI_signal) pc = read_pair(NMI_addr);
             if(RES_signal) pc = read_pair(RES_addr);
             if(IRQ_signal) pc = read_pair(IRQ_addr);
         }
+
+        tester-=1;
+        if(tester <= 0) break;
     }
     return 0;
 }
 
 /////////////////////////////ROM Loading
-void loadROM(std::ifstream file){
+void loadROM(std::string file_name){
+    std::ifstream file(file_name);
     char c;
     for(int i=0; i<0x10; i++){
         file.get(c);
@@ -1241,14 +1259,15 @@ void loadROM(std::ifstream file){
         file.get(c);
         VRAM[i] = c;
     }
+    pc = read_pair(RES_addr);
+    printf("%x %x%x %x\n", pc, (unsigned)(unsigned char)mem[RES_addr+1], (unsigned)(unsigned char)mem[RES_addr], read_pair(RES_addr));
 }
 
 int main(int argc, char *argv[]) {
 
     //Load ROM
     std::string file_name = argv[1];
-    stf::ifstream ROM_file(file_name);
-    loadROM(ROM_file);
+    loadROM(file_name);
 
     //Execute
     return run();
