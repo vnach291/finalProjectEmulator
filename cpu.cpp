@@ -8,7 +8,7 @@ uint64_t clock_cycle = 0;
 int inst_cycles = 0;
 
 /////////////////////////////Memory (64KB)
-char mem[0x10000];
+unsigned char mem[0x10000];
 void write_mem(uint16_t addr, char v){
     mem[addr] = v;
     //TODO handle special stuff
@@ -44,7 +44,7 @@ uint8_t C;
 
 //Helper functions
 uint16_t read_pair(uint16_t addr) {
-    return (((uint16_t)mem[addr+1])<<8) | mem[addr];
+    return (mem[addr+1]<<8) | mem[addr];
 }
 void push(uint8_t val) {
     mem[SP] = val;
@@ -1120,10 +1120,10 @@ int run(){
     while(true){
         printf("%x %02x\n", pc, (unsigned)(unsigned char)mem[pc]);
         //Get instruction
-        char inst = mem[pc];
-        char inst_a = inst >> 5;
-        char inst_b = (inst >> 2) & 0b111;
-        char inst_c = inst & 0b11;
+        unsigned char inst = mem[pc];
+        unsigned char inst_a = inst >> 5;
+        unsigned char inst_b = (inst >> 2) & 0b111;
+        unsigned char inst_c = inst & 0b11;
         special_interrupt = false;
 
         //Set cycle cost to 0
@@ -1248,19 +1248,22 @@ int run(){
 void loadROM(std::string file_name){
     std::ifstream file(file_name);
     char c;
+    //Header (skipped)
     for(int i=0; i<0x10; i++){
         file.get(c);
     }
+    //Program ROM
     for(int i=0; i<0x4000; i++){
         file.get(c);
         mem[0xc000+i] = c;
     }
+    //Character ROM
     for(int i=0; i<0x2000; i++){
         file.get(c);
         VRAM[i] = c;
     }
+    //Initialize pc
     pc = read_pair(RES_addr);
-    printf("%x %x%x\n", pc, (unsigned)(unsigned char)mem[RES_addr+1], (unsigned)(unsigned char)mem[RES_addr]);
 }
 
 int main(int argc, char *argv[]) {
