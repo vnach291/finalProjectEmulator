@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <string>
+#include <fstream>
 
 /////////////////////////////Clock
 uint64_t clock_cycle = 0;
@@ -7,6 +8,9 @@ uint64_t clock_cycle = 0;
 /////////////////////////////Memory (64KB)
 char[0x10000] mem;
 //TODO setup special addresses as macros
+
+/////////////////////////////VRAM
+char VRAM[0x2000];
 
 /////////////////////////////Registers/Flags
 uint16_t pc;
@@ -1011,8 +1015,17 @@ int run(){
 
 /////////////////////////////ROM Loading
 void loadROM(std::ifstream file){
-    for(){
-        
+    char c;
+    for(int i=0; i<0x10; i++){
+        file.get(c);
+    }
+    for(int i=0; i<0x4000; i++){
+        file.get(c);
+        mem[0xc000+i] = c;
+    }
+    for(int i=0; i<0x2000; i++){
+        file.get(c);
+        VRAM[i] = c;
     }
 }
 
@@ -1021,6 +1034,7 @@ int main(int argc, char *argv[]) {
     //Load ROM
     std::string file_name = argv[1];
     stf::ifstream ROM_file(file_name);
+    loadROM(ROM_file);
 
     //Execute
     return run();
