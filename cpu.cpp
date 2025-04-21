@@ -1,18 +1,38 @@
 #include <cstdint>
+#include <string>
+#include <fstream>
+#include <stdio.h>
 
 /////////////////////////////Clock
 uint64_t clock_cycle = 0;
+int inst_cycles = 0;
 
 /////////////////////////////Memory (64KB)
 char mem[0x10000];
+void write_mem(uint16_t addr, char v){
+    mem[addr] = v;
+    //TODO handle special stuff
+}
 //TODO setup special addresses as macros
+
+/////////////////////////////VRAM
+char VRAM[0x2000];
+
+//Interrupt signals
+bool NMI_signal;
+bool RES_signal;
+bool IRQ_signal;
+bool special_interrupt;
+#define NMI_addr 0xfffa
+#define RES_addr 0xfffc
+#define IRQ_addr 0xfffe
 
 /////////////////////////////Registers/Flags
 uint16_t pc;
 uint8_t A;
 uint8_t X;
 uint8_t Y;
-uint8_t SP;
+uint8_t SP = 0xff;
 uint8_t N;
 uint8_t V;
 uint8_t B;
@@ -20,11 +40,11 @@ uint8_t D;
 uint8_t I;
 uint8_t Z;
 uint8_t C;
-#define SR (N<<7 + V<<6 + B<<4 + D<<3 + I<<2 + Z<<1 + C<<0)
+#define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
 
 //Helper functions
 uint16_t read_pair(uint16_t addr) {
-    return mem[addr+1]<<8 + mem[addr];
+    return (mem[addr+1]<<8) | mem[addr];
 }
 void push(uint8_t val) {
     mem[SP] = val;
@@ -47,9 +67,10 @@ void pull_SR() {
     Z = (res>>1)&1;
     C = (res>>0)&1;
 }
-void pull_pair() {
+uint16_t pull_pair() {
     uint16_t res = pull();
     res |= ((uint16_t) pull())<<8;
+    return res;
 }
 void set_NZ(uint8_t val){
     N = (val>>7) ? 1 : 0;
@@ -64,7 +85,11 @@ uint16_t get_imm(){
 uint16_t get_rel(){
     //relative
     uint16_t res = ((int16_t)pc)+((int8_t)mem[pc+1]);
-    if(res>>8 != pc>>8) inst_cycles++;
+    if(res>>8 != pc>>8) {
+        inst_cycles++;
+    } else {
+        special_interrupt = true;
+    }
     return res;
 }
 uint16_t get_zpg(){
@@ -81,29 +106,29 @@ uint16_t get_zpg_Y(){
 }
 uint16_t get_X_ind(){
     //indirect X pre-index
-    return mem[(mem[pc+1] + X + 1) % 0xff]<<8 + mem[(mem[pc+1] + X) % 0xff];
+    return (mem[(mem[pc+1] + X + 1) % 0xff]<<8) | mem[(mem[pc+1] + X) % 0xff];
 }
 uint16_t get_ind_Y(){
     //indirect Y post-index
-    uint16_t res1 = mem[(mem[pc+1] + 1) % 0xff]<<8 + mem[mem[pc+1]];
+    uint16_t res1 = (mem[(mem[pc+1] + 1) % 0xff]<<8) | mem[mem[pc+1]];
     uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
 uint16_t get_abs(){
     //absolute
-    return mem[pc+2]<<8 + mem[pc+1];
+    return (mem[pc+2]<<8) | mem[pc+1];
 }
 uint16_t get_abs_X(){
     //absolute X index
-    uint16_t res1 = mem[pc+2]<<8 + mem[pc+1];
+    uint16_t res1 = (mem[pc+2]<<8) | mem[pc+1];
     uint16_t res2 = res1 + X;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
 uint16_t get_abs_Y(){
     //absolute Y index
-    uint16_t res1 = mem[pc+2]<<8 + mem[pc+1] + Y;
+    uint16_t res1 = (mem[pc+2]<<8) | mem[pc+1];
     uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
@@ -118,7 +143,7 @@ void BRK(int mode){
             I = 1;
             push_pair(pc+2);
             push(SR | 0b00010000);
-            pc = read_pair(0xfffe);
+            pc = read_pair(IRQ_addr);
             break;
         case 2:
             //PHP impl
@@ -132,8 +157,9 @@ void BRK(int mode){
             if(N == 0){
                 inst_cycles += 1;
                 pc = get_rel();
+
             } else {
-                pc = pc+1;
+                pc = pc+2;
             }
             break;
         case 6:
@@ -145,6 +171,7 @@ void BRK(int mode){
     }
 }
 void JSR(int mode){
+    uint8_t op;
     switch(mode){
         case 0:
             //JSR abs
@@ -155,11 +182,11 @@ void JSR(int mode){
         case 1:
             //BIT zpg
             inst_cycles += 3;
-            uint8_t op = mem[get_zpg()];
-            N = (op>>7&1);
-            V = (op>>6&1);
+            op = mem[get_zpg()];
+            N = (op>>7)&1;
+            V = (op>>6)&1;
             Z = (A & op) ? 1 : 0;
-            pc = pc+1;
+            pc = pc+2;
             break;
         case 2:
             //PLP impl
@@ -170,11 +197,11 @@ void JSR(int mode){
         case 3:
             //BIT abs
             inst_cycles += 4;
-            uint8_t op = mem[get_abs()];
-            N = (op>>7&1);
-            V = (op>>6&1);
+            op = mem[get_abs()];
+            N = (op>>7)&1;
+            V = (op>>6)&1;
             Z = (A & op) ? 1 : 0;
-            pc = pc+1;
+            pc = pc+3;
             break;
         case 4:
             //BMI rel
@@ -183,7 +210,7 @@ void JSR(int mode){
                 inst_cycles += 1;
                 pc = get_rel();
             } else {
-                pc = pc+1;
+                pc = pc+2;
             }
             break;
         case 6:
@@ -220,7 +247,7 @@ void RTI(int mode){
                 inst_cycles += 1;
                 pc = get_rel();
             } else {
-                pc = pc+1;
+                pc = pc+2;
             }
             break;
         case 6:
@@ -242,8 +269,7 @@ void RTS(int mode){
             //PLA impl
             inst_cycles += 4;
             A = pull();
-            N = (A>>7) ? 1 : 0;
-            Z = A ? 0 : 1;
+            set_NZ(A);
             pc = pc+1;
             break;
         case 3:
@@ -258,7 +284,7 @@ void RTS(int mode){
                 inst_cycles += 1;
                 pc = get_rel();
             } else {
-                pc = pc+1;
+                pc = pc+2;
             }
             break;
         case 6:
@@ -275,19 +301,20 @@ void STY(int mode){
             //STY zpg
             inst_cycles += 3;
             mem[get_zpg()] = Y;
-            pc = pc+1;
+            pc = pc+2;
             break;
         case 2:
             //DEY impl
             inst_cycles += 2;
             Y = Y-1;
+            set_NZ(Y);
             pc = pc+1;
             break;
         case 3:
             //STY abs
             inst_cycles += 4;
             mem[get_abs()] = Y;
-            pc = pc+1;
+            pc = pc+3;
             break;
         case 4:
             //BCC rel
@@ -296,17 +323,21 @@ void STY(int mode){
                 inst_cycles += 1;
                 pc = get_rel();
             } else {
-                pc = pc+1;
+                pc = pc+2;
             }
             break;
         case 5:
             //STY zpg,X
             inst_cycles += 4;
             mem[get_zpg_X()] = Y;
-            pc = pc+1;
+            pc = pc+2;
             break;
         case 6:
             //TYA impl
+            inst_cycles += 2;
+            A = Y;
+            set_NZ(A);
+            pc = pc+1;
             break;
     }
     
@@ -315,71 +346,173 @@ void LDY(int mode){
     switch(mode){
         case 0:
             //LDY #
+            inst_cycles += 2;
+            Y = get_imm();
+            set_NZ(Y);
+            pc = pc+2;
             break;
         case 1:
             //LDY zpg
+            inst_cycles += 3;
+            Y = mem[get_zpg()];
+            set_NZ(Y);
+            pc = pc+2;
             break;
         case 2:
             //TAY impl
+            inst_cycles += 2;
+            Y = A;
+            set_NZ(Y);
+            pc = pc+1;
             break;
         case 3:
             //LDY abs
+            inst_cycles += 4;
+            Y = mem[get_abs()];
+            set_NZ(Y);
+            pc = pc+3;
             break;
         case 4:
             //BCS rel
+            inst_cycles += 2;
+            if(C == 1){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+2;
+            }
             break;
         case 5:
             //LDY zpg,X
+            inst_cycles += 4;
+            Y = mem[get_zpg_X()];
+            set_NZ(Y);
+            pc = pc+3;
             break;
         case 6:
             //CLV impl
+            inst_cycles += 2;
+            V = 0;
+            pc = pc+1;
             break;
         case 7:
             //LDY abs,X
+            inst_cycles += 4;
+            Y = mem[get_abs_X()];
+            set_NZ(Y);
+            pc = pc+1;
             break;
     }
 }
 void CPY(int mode){
+    uint8_t imm;
+    uint8_t res;
     switch(mode){
         case 0:
             //CPY #
+            inst_cycles += 2;
+            imm = get_imm();
+            res = Y - imm;
+            set_NZ(res);
+            C = (Y >= imm) ? 1 : 0;
+            pc = pc+2;
             break;
         case 1:
             //CPY zpg
+            inst_cycles += 3;
+            imm = mem[get_zpg()];
+            res = Y - imm;
+            set_NZ(res);
+            C = (Y >= imm) ? 1 : 0;
+            pc = pc+2;
             break;
         case 2:
             //INY impl
+            inst_cycles += 2;
+            Y = Y+1;
+            set_NZ(Y);
+            pc = pc+1;
             break;
         case 3:
             //CPY abs
+            inst_cycles += 4;
+            imm = mem[get_abs()];
+            res = Y - imm;
+            set_NZ(res);
+            C = (Y >= imm) ? 1 : 0;
+            pc = pc+3;
             break;
         case 4:
             //BNE rel
+            inst_cycles += 2;
+            if(Z == 0){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+2;
+            }
             break;
         case 6:
             //CLD impl
+            inst_cycles += 2;
+            D = 0;
+            pc = pc+1;
             break;
     }
 }
 void CPX(int mode){
+    uint8_t imm;
+    uint8_t res;
     switch(mode){
         case 0:
             //CPX #
+            inst_cycles += 2;
+            imm = get_imm();
+            res = X - imm;
+            set_NZ(res);
+            C = (X >= imm) ? 1 : 0;
+            pc = pc+2;
             break;
         case 1:
             //CPX zpg
+            inst_cycles += 3;
+            imm = mem[get_zpg()];
+            res = X - imm;
+            set_NZ(res);
+            C = (X >= imm) ? 1 : 0;
+            pc = pc+2;
             break;
         case 2:
             //INX impl
+            inst_cycles += 2;
+            X = X+1;
+            set_NZ(X);
+            pc = pc+1;
             break;
         case 3:
             //CPX abs
+            inst_cycles += 4;
+            imm = mem[get_abs()];
+            res = X - imm;
+            set_NZ(res);
+            C = (X >= imm) ? 1 : 0;
+            pc = pc+3;
             break;
         case 4:
             //BEQ rel
+            inst_cycles += 2;
+            if(Z == 1){
+                inst_cycles += 1;
+                pc = get_rel();
+            } else {
+                pc = pc+2;
+            }
             break;
         case 6:
             //SED impl
+            inst_cycles += 2;
+            D = 1;
+            pc = pc+1;
             break;
     }
 }
@@ -1112,15 +1245,17 @@ void INC(int mode){
     }
 }
 
+int tester=10;
 /////////////////////////////Execute program
-int inst_cycles;
 int run(){
     while(true){
+        printf("%x %02x\n", pc, (unsigned)(unsigned char)mem[pc]);
         //Get instruction
-        char inst = get_from_memory(pc);
+        char inst = mem[pc];
         char inst_a = inst >> 5;
         char inst_b = (inst >> 2) & 0b111;
         char inst_c = inst & 0b11;
+        special_interrupt = false;
 
         //Set cycle cost to 0
         inst_cycles = 0;
@@ -1218,15 +1353,52 @@ int run(){
         //Update instruction/clock
         clock_cycle += inst_cycles;
 
-        //TODO check for interrupts (take into account extra cycle special case)
+        //Do interrupts
+        if(NMI_signal | RES_signal | (IRQ_signal && !I)){
+            //Handle edge case
+            if(special_interrupt) clock_cycle++;
+
+            //Update stack
+            push_pair(pc);
+            push(SR);
+            I = 1;
+
+            //Do jump
+            if(NMI_signal) pc = read_pair(NMI_addr);
+            if(RES_signal) pc = read_pair(RES_addr);
+            if(IRQ_signal) pc = read_pair(IRQ_addr);
+        }
+
+        tester-=1;
+        if(tester <= 0) break;
     }
     return 0;
+}
+
+/////////////////////////////ROM Loading
+void loadROM(std::string file_name){
+    std::ifstream file(file_name);
+    char c;
+    for(int i=0; i<0x10; i++){
+        file.get(c);
+    }
+    for(int i=0; i<0x4000; i++){
+        file.get(c);
+        mem[0xc000+i] = c;
+    }
+    for(int i=0; i<0x2000; i++){
+        file.get(c);
+        VRAM[i] = c;
+    }
+    pc = read_pair(RES_addr);
+    printf("%x %x%x %x\n", pc, (unsigned)(unsigned char)mem[RES_addr+1], (unsigned)(unsigned char)mem[RES_addr], read_pair(RES_addr));
 }
 
 int main(int argc, char *argv[]) {
 
     //Load ROM
-    //TODO
+    std::string file_name = argv[1];
+    loadROM(file_name);
 
     //Execute
     return run();
