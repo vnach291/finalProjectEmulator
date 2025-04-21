@@ -122,6 +122,20 @@ uint16_t get_abs_Y(){
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
+void do_sbc(uint8_t value) {
+    uint16_t temp = A - value - (1 - C);
+    uint8_t result = temp & 0xFF;
+
+    // Set carry if no borrow occurred (A >= M + (1-C))
+    C = (temp < 0x100) ? 1 : 0;
+
+    // Set overflow if sign bit of A and result differ and A and M differ in sign
+    V = ((A ^ result) & (A ^ value) & 0x80) ? 1 : 0;
+
+    A = result;
+    set_NZ(A);
+}
+
 
 ////////////////////////////aaabbb00 Instructions
 void BRK(int mode){
@@ -618,24 +632,46 @@ void STA(int mode){
     switch(mode){
         case 0:
             //STA X,ind
+            inst_cycles += 6;
+            mem[get_X_ind()] = A;
+            pc = pc+2;
+            break;
             break;
         case 1:
             //STA zpg
+            inst_cycles += 3;
+            mem[get_zpg()] = A;
+            pc = pc+2;
             break;
         case 3:
             //STA abs
+            inst_cycles += 4;
+            mem[get_abs()] = A;
+            pc = pc+3;
             break;
         case 4:
             //STA ind,Y
+            inst_cycles += 6;
+            mem[get_ind_Y()] = A;
+            pc = pc+2;
             break;
         case 5:
             //STA zpg,X
+            inst_cycles += 4;
+            mem[get_zpg_X()] = A;
+            pc = pc+2;
             break;
         case 6:
             //STA abs,Y
+            inst_cycles += 5;
+            mem[get_abs_Y()] = A;
+            pc = pc+3;
             break;
         case 7:
             //STA abs,X
+            inst_cycles += 5;
+            mem[get_abs_X()] = A;
+            pc = pc+3;
             break;
     }
 }
@@ -643,55 +679,136 @@ void LDA(int mode){
     switch(mode){
         case 0:
             //LDA X,ind
+            inst_cycles += 6;
+            A = mem[get_X_ind()];
+            set_NZ(A);
+            pc = pc+2;
             break;
         case 1:
             //LDA zpg
+            inst_cycles += 3;
+            A = mem[get_zpg()];
+            set_NZ(A);
+            pc = pc+2;
             break;
         case 2:
             //LDA #
+            inst_cycles += 2;
+            A = get_imm();
+            set_NZ(A);
+            pc = pc+2;
             break;
         case 3:
             //LDA abs
+            inst_cycles += 4;
+            A = mem[get_abs()];
+            set_NZ(A);
+            pc = pc+3;
             break;
         case 4:
             //LDA ind,Y
+            inst_cycles += 5;
+            A = mem[get_ind_Y()];
+            set_NZ(A);
+            pc = pc+2;
             break;
         case 5:
             //LDA zpg,X
+            inst_cycles += 4;
+            A = mem[get_zpg_X()];
+            set_NZ(A);
+            pc = pc+2;
             break;
         case 6:
             //LDA abs,Y
+            inst_cycles += 4;
+            A = mem[get_abs_Y()];
+            set_NZ(A);
+            pc = pc+3;
             break;
         case 7:
             //LDA abs,X
+            inst_cycles += 4;
+            A = mem[get_abs_X()];
+            set_NZ(A);
+            pc = pc+3;
             break;
     }
 }
 void CMP(int mode){
+    uint8_t val = 0;
     switch(mode){
         case 0:
             //CMP X,ind
+            inst_cycles += 6;
+            val = mem[get_X_ind()];
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 2;
             break;
         case 1:
             //CMP zpg
+            inst_cycles += 3;
+            val = mem[get_zpg()];
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 2;
             break;
         case 2:
             //CMP #
+            inst_cycles += 2;
+            val = get_imm();
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 2;
             break;
         case 3:
             //CMP abs
+            inst_cycles += 4;
+            val = mem[get_abs()];
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 3;
             break;
         case 4:
             //CMP ind,Y
+            inst_cycles += 5;
+            val = mem[get_ind_Y()];
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 2;
             break;
         case 5:
             //CMP zpg,X
+            inst_cycles += 4;
+            val = mem[get_zpg_X()];
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 2;
             break;
         case 6:
             //CMP abs,Y
+            inst_cycles += 4;
+            val = mem[get_abs_Y()];
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 3;
             break;
         case 7:
             //CMP abs,X
+            inst_cycles += 4;
+            val = mem[get_abs_X()];
+            uint8_t res = A - val;
+            set_NZ(res);
+            C = (A >= val) ? 1 : 0;
+            pc += 3;
             break;
     }
 }
@@ -699,27 +816,51 @@ void SBC(int mode){
     switch(mode){
         case 0:
             //SBC X,ind
+            inst_cycles += 6;
+            do_sbc(mem[get_X_ind()]);
+            pc += 2;
             break;
         case 1:
             //SBC zpg
+            inst_cycles += 3;
+            do_sbc(mem[get_zpg()]);
+            pc += 2;
             break;
         case 2:
             //SBC #
+            inst_cycles += 2;
+            do_sbc(get_imm());
+            pc += 2;
             break;
         case 3:
             //SBC abs
+            inst_cycles += 4;
+            do_sbc(mem[get_abs()]);
+            pc += 3;
             break;
         case 4:
             //SBC ind,Y
+            inst_cycles += 5;
+            do_sbc(mem[get_ind_Y()]);
+            pc += 2;
             break;
         case 5:
             //SBC zpg,X
+            inst_cycles += 4;
+            do_sbc(mem[get_zpg_X()]);
+            pc += 2;
             break;
         case 6:
             //SBC abs,Y
+            inst_cycles += 4;
+            do_sbc(mem[get_abs_Y()]);
+            pc += 3;
             break;
         case 7:
             //SBC abs,X
+            inst_cycles += 4;
+            do_sbc(mem[get_abs_X()]);
+            pc += 3;
             break;
     }
 }
