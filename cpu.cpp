@@ -44,7 +44,7 @@ uint8_t C;
 
 //Helper functions
 uint16_t read_pair(uint16_t addr) {
-    return (mem[addr+1]<<8) | mem[addr];
+    return (((uint16_t)mem[addr+1])<<8) | mem[addr];
 }
 void push(uint8_t val) {
     mem[SP] = val;
@@ -1260,7 +1260,7 @@ void loadROM(std::string file_name){
         VRAM[i] = c;
     }
     pc = read_pair(RES_addr);
-    printf("%x %x%x %x\n", pc, (unsigned)(unsigned char)mem[RES_addr+1], (unsigned)(unsigned char)mem[RES_addr], read_pair(RES_addr));
+    printf("%x %x%x\n", pc, (unsigned)(unsigned char)mem[RES_addr+1], (unsigned)(unsigned char)mem[RES_addr]);
 }
 
 int main(int argc, char *argv[]) {
