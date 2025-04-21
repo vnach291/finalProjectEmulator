@@ -6,7 +6,7 @@
 uint64_t clock_cycle = 0;
 
 /////////////////////////////Memory (64KB)
-char[0x10000] mem;
+char mem[0x10000];
 //TODO setup special addresses as macros
 
 /////////////////////////////VRAM
@@ -510,27 +510,59 @@ void ORA(int mode){
     switch(mode){
         case 0:
             //ORA X,ind
+            inst_cycles += 6;
+            A = A | mem[get_X_ind()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 1:
             //ORA zpg
+            inst_cycles += 3;
+            A = A | mem[get_zpg()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 2:
             //ORA #
+            inst_cycles += 2;
+            A = A | mem[pc+1];
+            set_NZ(A);
+            pc += 2;
             break;
         case 3:
             //ORA abs
+            inst_cycles += 4;
+            A = A | mem[get_abs()];
+            set_NZ(A);
+            pc += 3;
             break;
         case 4:
             //ORA ind,Y
+            inst_cycles += 5;
+            A = A | mem[get_ind_Y()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 5:
             //ORA zpg,X
+            inst_cycles += 4;
+            A = A | mem[get_zpg_X()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 6:
             //ORA abs,Y
+            inst_cycles += 4;
+            A = A | mem[get_abs_Y()];
+            set_NZ(A);
+            pc += 3;
             break;
         case 7:
             //ORA abs,X
+            inst_cycles += 4;
+            A = A | mem[get_abs_X()];
+            set_NZ(A);
+            pc += 3;
             break;
     }
 }
@@ -733,18 +765,43 @@ void ASL(int mode){
     switch(mode){
         case 1:
             //ASL zpg
+            inst_cycles += 5;
+            C = (mem[get_zpg()] >> 7) & 1;
+            mem[get_zpg()] = mem[get_zpg()] << 1;
+            set_NZ(mem[get_zpg()]);
+            pc += 2;
             break;
         case 2:
             //ASL A
+            inst_cycles += 2;
+            C = (A >> 7) & 1;
+            A = A << 1;
+            set_NZ(A);
+            pc += 1;
             break;
         case 3:
             //ASL abs
+            inst_cycles += 6;
+            C = (mem[get_abs()] >> 7) & 1;
+            mem[get_abs()] = mem[get_abs()] << 1;
+            set_NZ(mem[get_abs()]);
+            pc += 3;
             break;
         case 5:
             //ASL zpg,X
+            inst_cycles += 6;
+            C = (mem[get_zpg_X()] >> 7) & 1;
+            mem[get_zpg_X()] = mem[get_zpg_X()] << 1;
+            set_NZ(mem[get_zpg_X()]);
+            pc += 2;
             break;
         case 7:
             //ASL abs,X
+            inst_cycles += 7;
+            C = (mem[get_abs_X()] >> 7) & 1;
+            mem[get_abs_X()] = mem[get_abs_X()] << 1;
+            set_NZ(mem[get_abs_X()]);
+            pc += 3;
             break;
     }
 }
@@ -752,18 +809,43 @@ void ROL(int mode){
     switch(mode){
         case 1:
             //ROL zpg
+            inst_cycles += 5;
+            C = (mem[get_zpg()] >> 7) & 1;
+            mem[get_zpg()] = (mem[get_zpg()] << 1) + C;
+            set_NZ(mem[get_zpg()]);
+            pc += 2;
             break;
         case 2:
             //ROL A
+            inst_cycles += 2;
+            C = (A >> 7) & 1;
+            A = (A << 1) + C;
+            set_NZ(A);
+            pc += 1;
             break;
         case 3:
             //ROL abs
+            inst_cycles += 6;
+            C = (mem[get_abs()] >> 7) & 1;
+            mem[get_abs()] = (mem[get_abs()] << 1) + C;
+            set_NZ(mem[get_abs()]);
+            pc += 3;
             break;
         case 5:
             //ROL zpg,X
+            inst_cycles += 6;
+            C = (mem[get_zpg_X()] >> 7) & 1;
+            mem[get_zpg_X()] = (mem[get_zpg_X()] << 1) + C;
+            set_NZ(mem[get_zpg_X()]);
+            pc += 2;
             break;
         case 7:
             //ROL abs,X
+            inst_cycles += 7;
+            C = (mem[get_abs_X()] >> 7) & 1;
+            mem[get_abs_X()] = (mem[get_abs_X()] << 1) + C;
+            set_NZ(mem[get_abs_X()]);
+            pc += 3;
             break;
     }
 }
@@ -771,18 +853,43 @@ void LSR(int mode){
     switch(mode){
         case 1:
             //LSR zpg
+            inst_cycles += 5;
+            C = mem[get_zpg()] & 1;
+            mem[get_zpg()] = mem[get_zpg()] >> 1;
+            set_NZ(mem[get_zpg()]);
+            pc += 2;
             break;
         case 2:
             //LSR A
+            inst_cycles += 2;
+            C = A & 1;
+            A = A >> 1;
+            set_NZ(A);
+            pc += 1;
             break;
         case 3:
             //LSR abs
+            inst_cycles += 6;
+            C = mem[get_abs()] & 1;
+            mem[get_abs()] = mem[get_abs()] >> 1;
+            set_NZ(mem[get_abs()]);
+            pc += 3;
             break;
         case 5:
             //LSR zpg,X
+            inst_cycles += 6;
+            C = mem[get_zpg_X()] & 1;
+            mem[get_zpg_X()] = mem[get_zpg_X()] >> 1;
+            set_NZ(mem[get_zpg_X()]);
+            pc += 2;
             break;
         case 7:
             //LSR abs,X
+            inst_cycles += 7;
+            C = mem[get_abs_X()] & 1;
+            mem[get_abs_X()] = mem[get_abs_X()] >> 1;
+            set_NZ(mem[get_abs_X()]);
+            pc += 3;
             break;
     }
 }
@@ -790,18 +897,43 @@ void ROR(int mode){
     switch(mode){
         case 1:
             //ROR zpg
+            inst_cycles += 5;
+            C = mem[get_zpg()] & 1;
+            mem[get_zpg()] = (mem[get_zpg()] >> 1) + (C << 7);
+            set_NZ(mem[get_zpg()]);
+            pc += 2;
             break;
         case 2:
             //ROR A
+            inst_cycles += 2;
+            C = A & 1;
+            A = (A >> 1) + (C << 7);
+            set_NZ(A);
+            pc += 1;
             break;
         case 3:
             //ROR abs
+            inst_cycles += 6;
+            C = mem[get_abs()] & 1;
+            mem[get_abs()] = (mem[get_abs()] >> 1) + (C << 7);
+            set_NZ(mem[get_abs()]);
+            pc += 3;
             break;
         case 5:
             //ROR zpg,X
+            inst_cycles += 6;
+            C = mem[get_zpg_X()] & 1;
+            mem[get_zpg_X()] = (mem[get_zpg_X()] >> 1) + (C << 7);
+            set_NZ(mem[get_zpg_X()]);
+            pc += 2;
             break;
         case 7:
             //ROR abs,X
+            inst_cycles += 7;
+            C = mem[get_abs_X()] & 1;
+            mem[get_abs_X()] = (mem[get_abs_X()] >> 1) + (C << 7);
+            set_NZ(mem[get_abs_X()]);
+            pc += 3;
             break;
     }
 }
@@ -809,18 +941,34 @@ void STX(int mode){
     switch(mode){
         case 1:
             //STX zpg
+            inst_cycles += 3;
+            mem[get_zpg()] = X;
+            pc += 2;
             break;
         case 2:
             //TXA impl
+            inst_cycles += 2;
+            A = X;
+            set_NZ(A);
+            pc += 1;
             break;
         case 3:
             //STX abs
+            inst_cycles += 4;
+            mem[get_abs()] = X;
+            pc += 3;
             break;
         case 5:
             //STX zpg,Y
+            inst_cycles += 4;
+            mem[get_zpg_Y()] = X;
+            pc += 2;
             break;
         case 6:
             //TXS impl
+            inst_cycles += 2;
+            SP = X;
+            pc += 1;
             break;
     }
 }
@@ -828,24 +976,52 @@ void LDX(int mode){
     switch(mode){
         case 0:
             //LDX #
+            inst_cycles += 2;
+            X = get_imm();
+            set_NZ(X);
+            pc += 2; 
             break;
         case 1:
             //LDX zpg
+            inst_cycles += 3;
+            X = mem[get_zpg()];
+            set_NZ(X);
+            pc += 2;
             break;
         case 2:
             //TAX impl
+            inst_cycles += 2;
+            X = A;
+            set_NZ(X);
+            pc += 1;
             break;
         case 3:
             //LDX abs
+            inst_cycles += 4;
+            X = mem[get_abs()];
+            set_NZ(X);
+            pc += 3; 
             break;
         case 5:
             //LDX zpg,Y
+            inst_cycles += 4;
+            X = mem[get_zpg_Y()];
+            set_NZ(X);
+            pc += 2;
             break;
         case 6:
             //TSX impl
+            inst_cycles += 2;
+            X = SP; 
+            set_NZ(X);
+            pc += 1;
             break;
         case 7:
             //LDX abs,Y
+            inst_cycles += 4;
+            X = mem[get_abs_Y()];
+            set_NZ(X);
+            pc += 3;
             break;
     }
 }
@@ -853,18 +1029,38 @@ void DEC(int mode){
     switch(mode){
         case 1:
             //DEC zpg
+            inst_cycles += 5;
+            mem[get_zpg()] = mem[get_zpg()] - 1;
+            set_NZ(mem[get_zpg()]);
+            pc += 2;
             break;
         case 2:
             //DEX impl
+            inst_cycles += 2;
+            X -= 1;
+            set_NZ(X);
+            pc += 1;
             break;
         case 3:
             //DEC abs
+            inst_cycles += 6;
+            mem[get_abs()] = mem[get_abs()] - 1;
+            set_NZ(mem[get_abs()]);
+            pc += 3;
             break;
         case 5:
             //DEC zpg,X
+            inst_cycles += 6;
+            mem[get_zpg_X()] = mem[get_zpg_X()] - 1;
+            set_NZ(mem[get_zpg_X()]);
+            pc += 2;
             break;
         case 7:
             //DEC abs,X
+            inst_cycles += 7;
+            mem[get_abs_X()] = mem[get_abs_X()] - 1;
+            set_NZ(mem[get_abs_X()]);
+            pc += 3;
             break;
     }
 }
@@ -872,18 +1068,36 @@ void INC(int mode){
     switch(mode){
         case 1:
             //INC zpg
+            inst_cycles += 5;
+            mem[get_zpg()] = mem[get_zpg()] + 1;
+            set_NZ(mem[get_zpg()]);
+            pc += 2;
             break;
         case 2:
             //NOP impl
+            inst_cycles += 2;
+            pc += 1;
             break;
         case 3:
             //INC abs
+            inst_cycles += 6;
+            mem[get_abs()] = mem[get_abs()] + 1;
+            set_NZ(mem[get_abs()]);
+            pc += 3;
             break;
         case 5:
             //INC zpg,X
+            inst_cycles += 6;
+            mem[get_zpg_X()] = mem[get_zpg_X()] + 1;
+            set_NZ(mem[get_zpg_X()]);
+            pc += 2;
             break;
         case 7:
             //INC abs,X
+            inst_cycles += 7;
+            mem[get_abs_X()] = mem[get_abs_X()] + 1;
+            set_NZ(mem[get_abs_X()]);
+            pc += 3;
             break;
     }
 }
