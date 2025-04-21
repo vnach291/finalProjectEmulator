@@ -582,27 +582,59 @@ void AND(int mode){
     switch(mode){
         case 0:
             //AND X,ind
+            inst_cycles += 6;
+            A = A & mem[get_X_ind()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 1:
             //AND zpg
+            inst_cycles += 3;
+            A = A & mem[get_zpg()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 2:
             //AND #
+            inst_cycles += 2;
+            A = A & mem[pc+1];
+            set_NZ(A);
+            pc += 2;
             break;
         case 3:
             //AND abs
+            inst_cycles += 4;
+            A = A & mem[get_abs()];
+            set_NZ(A);
+            pc += 3;
             break;
         case 4:
             //AND ind,Y
+            inst_cycles += 5;
+            A = A & mem[get_ind_Y()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 5:
             //AND zpg,X
+            inst_cycles += 4;
+            A = A & mem[get_zpg_X()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 6:
             //AND abs,Y
+            inst_cycles += 4;
+            A = A & mem[get_abs_Y()];
+            set_NZ(A);
+            pc += 3;
             break;
         case 7:
             //AND abs,X
+            inst_cycles += 4;
+            A = A & mem[get_abs_X()];
+            set_NZ(A);
+            pc += 3;
             break;
     }
 }
@@ -610,55 +642,154 @@ void EOR(int mode){
     switch(mode){
         case 0:
             //EOR X,ind
+            inst_cycles += 6;
+            A = A ^ mem[get_X_ind()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 1:
             //EOR zpg
+            inst_cycles += 3;
+            A = A ^ mem[get_zpg()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 2:
             //EOR #
+            inst_cycles += 2;
+            A = A ^ mem[pc+1];
+            set_NZ(A);
+            pc += 2;
             break;
         case 3:
             //EOR abs
+            inst_cycles += 4;
+            A = A ^ mem[get_abs()];
+            set_NZ(A);
+            pc += 3;
             break;
         case 4:
             //EOR ind,Y
+            inst_cycles += 5;
+            A = A ^ mem[get_ind_Y()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 5:
             //EOR zpg,X
+            inst_cycles += 4;
+            A = A ^ mem[get_zpg_X()];
+            set_NZ(A);
+            pc += 2;
             break;
         case 6:
             //EOR abs,Y
+            inst_cycles += 4;
+            A = A ^ mem[get_abs_Y()];
+            set_NZ(A);
+            pc += 3;
             break;
         case 7:
             //EOR abs,X
+            inst_cycles += 4;
+            A = A ^ mem[get_abs_X()];
+            set_NZ(A);
+            pc += 3;
             break;
     }
 }
 void ADC(int mode){
+    uint8_t operand;
+    uint16_t result;
+    uint8_t original_A = A;
     switch(mode){
         case 0:
             //ADC X,ind
+            inst_cycles += 6;
+            operand = mem[get_X_ind()];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 2;
             break;
         case 1:
             //ADC zpg
+            inst_cycles += 3;
+            operand = mem[get_zpg()];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 2;
             break;
         case 2:
             //ADC #
+            inst_cycles += 2;
+            operand = mem[pc+1];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 2;
             break;
         case 3:
             //ADC abs
+            inst_cycles += 4;
+            operand = mem[get_abs()];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 3;
             break;
         case 4:
             //ADC ind,Y
+            inst_cycles += 5;
+            operand = mem[get_ind_Y()];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 2;
             break;
         case 5:
             //ADC zpg,X
+            inst_cycles += 4;
+            operand = mem[get_zpg_X()];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 2;
             break;
         case 6:
             //ADC abs,Y
+            inst_cycles += 4;
+            operand = mem[get_abs_Y()];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 3;
             break;
         case 7:
             //ADC abs,X
+            inst_cycles += 4;
+            operand = mem[get_abs_X()];
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
+            pc += 3;
             break;
     }
 }
