@@ -84,7 +84,7 @@ uint16_t get_imm(){
 }
 uint16_t get_rel(){
     //relative
-    uint16_t res = ((int16_t)pc)+((int8_t)mem[pc+1]);
+    uint16_t res = pc+((int8_t)mem[pc+1])+2;
     if(res>>8 != pc>>8) {
         inst_cycles++;
     } else {
@@ -916,12 +916,13 @@ void LDA(int mode){
 }
 void CMP(int mode){
     uint8_t val = 0;
+    uint8_t res;
     switch(mode){
         case 0:
             //CMP X,ind
             inst_cycles += 6;
             val = mem[get_X_ind()];
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 2;
@@ -930,7 +931,7 @@ void CMP(int mode){
             //CMP zpg
             inst_cycles += 3;
             val = mem[get_zpg()];
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 2;
@@ -939,7 +940,7 @@ void CMP(int mode){
             //CMP #
             inst_cycles += 2;
             val = get_imm();
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 2;
@@ -948,7 +949,7 @@ void CMP(int mode){
             //CMP abs
             inst_cycles += 4;
             val = mem[get_abs()];
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 3;
@@ -957,7 +958,7 @@ void CMP(int mode){
             //CMP ind,Y
             inst_cycles += 5;
             val = mem[get_ind_Y()];
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 2;
@@ -966,7 +967,7 @@ void CMP(int mode){
             //CMP zpg,X
             inst_cycles += 4;
             val = mem[get_zpg_X()];
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 2;
@@ -975,7 +976,7 @@ void CMP(int mode){
             //CMP abs,Y
             inst_cycles += 4;
             val = mem[get_abs_Y()];
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 3;
@@ -984,7 +985,7 @@ void CMP(int mode){
             //CMP abs,X
             inst_cycles += 4;
             val = mem[get_abs_X()];
-            uint8_t res = A - val;
+            res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
             pc += 3;
@@ -1386,7 +1387,7 @@ void INC(int mode){
     }
 }
 
-int tester=10;
+int tester=100;
 /////////////////////////////Execute program
 int run(){
     while(true){
