@@ -1,7 +1,4 @@
-#include <cstdint>
-#include <string>
-#include <fstream>
-#include <stdio.h>
+#include "cpu.h"
 
 /////////////////////////////Clock
 uint64_t clock_cycle = 0;
