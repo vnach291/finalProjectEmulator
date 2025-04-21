@@ -22,9 +22,18 @@ uint8_t Z;
 uint8_t C;
 #define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
 
+//Interrupt signals
+bool NMI_signal;
+bool RES_signal;
+bool IRQ_signal;
+bool special_interrupt;
+#define NMI_addr 0xfffa
+#define RES_addr 0xfffc
+#define IRQ_addr 0xfffe
+
 //Helper functions
 uint16_t read_pair(uint16_t addr) {
-    return (mem[addr+1]<<8) + mem[addr];
+    return (mem[addr+1]<<8) | mem[addr];
 }
 void push(uint8_t val) {
     mem[SP] = val;
@@ -64,7 +73,11 @@ uint16_t get_imm(){
 uint16_t get_rel(){
     //relative
     uint16_t res = ((int16_t)pc)+((int8_t)mem[pc+1]);
-    if(res>>8 != pc>>8) inst_cycles++;
+    if(res>>8 != pc>>8) {
+        inst_cycles++;
+    } else {
+        special_interrupt = true;
+    }
     return res;
 }
 uint16_t get_zpg(){
@@ -81,29 +94,29 @@ uint16_t get_zpg_Y(){
 }
 uint16_t get_X_ind(){
     //indirect X pre-index
-    return (mem[(mem[pc+1] + X + 1) % 0xff]<<8) + mem[(mem[pc+1] + X) % 0xff];
+    return (mem[(mem[pc+1] + X + 1) % 0xff]<<8) | mem[(mem[pc+1] + X) % 0xff];
 }
 uint16_t get_ind_Y(){
     //indirect Y post-index
-    uint16_t res1 = (mem[(mem[pc+1] + 1) % 0xff]<<8) + mem[mem[pc+1]];
+    uint16_t res1 = (mem[(mem[pc+1] + 1) % 0xff]<<8) | mem[mem[pc+1]];
     uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
 uint16_t get_abs(){
     //absolute
-    return (mem[pc+2]<<8) + mem[pc+1];
+    return (mem[pc+2]<<8) | mem[pc+1];
 }
 uint16_t get_abs_X(){
     //absolute X index
-    uint16_t res1 = (mem[pc+2]<<8) + mem[pc+1];
+    uint16_t res1 = (mem[pc+2]<<8) | mem[pc+1];
     uint16_t res2 = res1 + X;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
 uint16_t get_abs_Y(){
     //absolute Y index
-    uint16_t res1 = (mem[pc+2]<<8) + mem[pc+1];
+    uint16_t res1 = (mem[pc+2]<<8) | mem[pc+1];
     uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
@@ -118,7 +131,7 @@ void BRK(int mode){
             I = 1;
             push_pair(pc+2);
             push(SR | 0b00010000);
-            pc = read_pair(0xfffe);
+            pc = read_pair(NMI_addr);
             break;
         case 2:
             //PHP impl
@@ -132,6 +145,7 @@ void BRK(int mode){
             if(N == 0){
                 inst_cycles += 1;
                 pc = get_rel();
+
             } else {
                 pc = pc+2;
             }
@@ -878,6 +892,7 @@ int run(){
         char inst_a = inst >> 5;
         char inst_b = (inst >> 2) & 0b111;
         char inst_c = inst & 0b11;
+        special_interrupt = false;
 
         //Set cycle cost to 0
         inst_cycles = 0;
@@ -975,7 +990,20 @@ int run(){
         //Update instruction/clock
         clock_cycle += inst_cycles;
 
-        //TODO check for interrupts (take into account extra cycle special case)
+        //Do interrupts
+        if(NMI_signal | RES_signal | (IRQ_signal && !I)){
+            //Handle edge case
+            if(special_interrupt) clock_cycle++;
+
+            //Update stack
+            push_pair(pc);
+            push(SR);
+
+            //Do jump
+            if(NMI_signal) pc = read_pair(NMI_addr);
+            if(RES_signal) pc = read_pair(RES_addr);
+            if(IRQ_signal) pc = read_pair(IRQ_addr);
+        }
     }
     return 0;
 }
