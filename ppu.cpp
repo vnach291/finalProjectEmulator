@@ -1,23 +1,46 @@
 #include "ppu.h"
 
+/////////////////////////////CPU
+extern unsigned char VRAM[];
+extern bool NMI_signal;
+extern unsigned char mem[];
+extern uint64_t clock_cycle;
+
+/////////////////////////////Internal regs
+bool w = false;
+
 /////////////////////////////Special Addresses
-extern unsigned char mem[];//TODO prob make into independent regs
 #define PPUCTRL mem[0x2000]
 #define PPUMASK mem[0x2001]
 #define PPUSTATUS mem[0x2002]
 #define OAMADDR mem[0x2003]
 #define OAMDATA mem[0x2004]
 #define PPUSCROLL mem[0x2005]
-#define PPUADDR mem[0x2006]
-#define PPUDATA mem[0x2007]
 #define OAMDMA mem[0x2008]
-extern bool NMI_signal;
+
+/////////////////////////////Special Address Handling
+uint16_t ppuaddr;
+void write_PPUADDR(uint8_t data){
+    if(!w) {
+        ppuaddr = (ppuaddr & 0x00ff) | (((uint16_t)data)<<8);
+    } else {
+        ppuaddr = (ppuaddr & 0xff00) | ((uint16_t)data);
+    }
+    w = !w;
+}
+uint8_t read_PPUADDR(){
+    return VRAM[ppuaddr];
+}
+void write_PPUDATA(uint8_t data){
+    VRAM[ppuaddr] = data;
+    ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
+}
 
 /////////////////////////////Tracking vars
-const int FPS = 30;
+const int FPS = 60;
 const int SCREEN_WIDTH = 256;
 const int SCREEN_HEIGHT = 240;
-const int SCREEN_SCALE = 2;
+const int SCREEN_SCALE = 3;
 int cycles = 0;
 int scanline = 0;
 
@@ -29,7 +52,6 @@ int scanline = 0;
  * calculation of what goes in the frame.
  */
 /////////////////////////////Handle Rendering
-extern unsigned char VRAM[];
 SDL_Window* window;
 SDL_Texture* texture;
 SDL_Renderer* renderer;
@@ -45,7 +67,7 @@ void setup_PPU(){
     }
 
     //Create window
-    window = SDL_CreateWindow("o7ulator",
+    window = SDL_CreateWindow("emulate deez",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
@@ -133,6 +155,9 @@ SDL_Color PALETTE[64] = {
     {248, 216, 120, 255}, {216, 248, 120, 255}, {184, 248, 184, 255}, {184, 248, 216, 255},
     {0, 252, 252, 255}, {248, 216, 248, 255}, {0, 0, 0, 255}, {0, 0, 0, 255}
 };
+SDL_Color GRAY_PALETTE[4] = {
+    {0, 0, 0, 255}, {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}
+};
 
 /////////////////////////////OAM
 uint8_t OAM[0x100];
@@ -147,15 +172,16 @@ uint8_t OAM2[0x20];
 #define should_render_sprite ((PPUMASK>>4)&1)
 #define should_render_bg ((PPUMASK>>3)&1)
 //Address finders
-#define sprite_pattern_address(i, fine_y) ((sprite_pattern_table_index<<12) | i | (fine_y&0b111))
-#define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | i | (fine_y&0b111))
-#define nametable_address(x, y) ((0x2000 | (nametable_index<<10)) + ((y<<5) | x))
-#define attribute_address(x, y) ((0x2000 | (nametable_index<<10)) + (0x3c0) + ((y<<3) | x))
-#define attribute_palette_index(dat, i) ((dat>>(i<<1))&0b11)
-#define color_address(palette, i, type) (0x3f00 | (type<<4) | (palette<<2) | i)
+#define sprite_pattern_address(i, fine_y) ((sprite_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
+#define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
+#define nametable_address(x, y) ((0x2000 | (nametable_index<<10)) + (((y)<<5) | (x)))
+#define attribute_address(x, y) ((0x2000 | (nametable_index<<10)) + (0x3c0) + (((y)<<3) | (x)))
+#define attribute_palette_index(dat, i) (((dat)>>((i)<<1))&0b11)
+#define color_address(palette, i, type) (0x3f00 | ((type)<<4) | ((palette)<<2) | (i))
 
 /////////////////////////////Run PPU
 bool hit_this_frame;
+bool is_odd;
 void PPU_cycle(){
     //Increment cycle and handle end of scanline
     cycles++;
@@ -168,12 +194,13 @@ void PPU_cycle(){
     if(scanline >= 0 && scanline <= 239){
         //Render
         if(cycles >= 1 && cycles <= 256){
+            int x = cycles-1;
             //Get sprite pixel
             SDL_Color sprite_color;
-            if(should_render_sprite){
+            if(should_render_sprite == 1){
                 for(int i=0; i<8; i++){
                     //TODO read from OAM
-                    //TODO sprite 0 collision set
+                    //TODO make actual sprite 0 collision set
                     if(!hit_this_frame){
                         PPUSTATUS |= 0b01000000; //sprite 0 hit
                         hit_this_frame = true;;
@@ -182,20 +209,35 @@ void PPU_cycle(){
             }
             //Get bg pixel
             SDL_Color bg_color;
-            if(should_render_bg){
-                //TODO fix (read nametable -> read pattern + read attribute -> read palette)
-                int nt_index = (scanline>>3)*32 + (cycles>>3);
-                int color_index = VRAM[bg_pattern_address(nt_index, scanline%8)];
+            bool bg_transparent = false;
+            if(should_render_bg == 1){
+                //Read nametable (tile address)
+                uint8_t tile_addr = VRAM[nametable_address(x>>3, scanline>>3)];
 
-                int at_x = ((cycles-1)>>4);
-                int at_y = (scanline>>4);
-                int palette_index = VRAM[attribute_address(at_x, at_y)];
-                int color_from_palette = VRAM[color_address(palette_index, color_index, 0)];
-                bg_color = PALETTE[color_from_palette];
+                //Read pattern (using tile address)
+                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, scanline%8)];
+                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, scanline%8)|0b1000];
+                int palette_index = (((tile_data_hi>>(7-x%8))&1)<<1) + ((tile_data_lo>>(7-x%8))&1);
+                if(palette_index == 0) bg_transparent = true;
+
+                //Read attribute + index within
+                int palette_data = VRAM[attribute_address(x>>5, scanline>>5)];
+                int palette_section = (((scanline>>4)%2)<<1) + ((x>>4)%2);
+                int palette_type = (palette_data>>(palette_section<<1))&0b11;
+
+                //Get color
+                int color_index = VRAM[color_address(palette_type, palette_index, 0)];
+                bg_color = PALETTE[color_index];
             }
             //Draw with logic
-            //TODO logic
-            frame_buffer[scanline*256 + (cycles-1)] = bg_color;
+            //TODO logic (precedence, transparency, enable, etc)
+            SDL_Color pixel_color;
+            if(should_render_bg && !bg_transparent){
+                pixel_color = bg_color;
+            } else {
+                pixel_color = PALETTE[color_address(0, 0, 0)];
+            }
+            frame_buffer[scanline*SCREEN_WIDTH + x] = pixel_color;
         }
         //Fill OAM2 once
         else if(cycles == 257) {

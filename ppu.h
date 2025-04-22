@@ -8,3 +8,6 @@
 void PPU_cycle();
 void setup_PPU();
 void render_frame();
+void write_PPUADDR(uint8_t data);
+uint8_t read_PPUADDR();
+void write_PPUDATA(uint8_t data);

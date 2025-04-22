@@ -1,8 +1,9 @@
 #include "cpu.h"
 
 #define TEST false
-#define TEST_PRINT true
+#define TEST_PRINT false
 #define SCREEN true
+#define SAFEEXIT {SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit(); exit(0);}
 
 /////////////////////////////Clock
 uint64_t clock_cycle = 7;
@@ -14,14 +15,22 @@ extern SDL_Window* window;
 extern SDL_Renderer* renderer;
 extern uint8_t OAM[];
 extern uint8_t OAM2[];
+extern bool w;
+extern int cycles;
+extern int scanline;
 
 /////////////////////////////Memory (64KB)
 uint8_t mem[0x10000];
 void write_mem(uint16_t addr, uint8_t v){
     mem[addr] = v;
     switch(addr){
+        case 0x2006:
+            //PPUADDR
+            write_PPUADDR(v);
+            break;
         case 0x2007:
             //PPUDATA
+            write_PPUDATA(v);
             break;
         //TODO handle other special stuff
     }
@@ -32,6 +41,11 @@ uint8_t read_mem(uint16_t addr){
         case 0x2002:
             //PPUSTATUS
             mem[addr] &= 0b01111111;
+            w = false;
+            break;
+        case 0x2006:
+            //PPUADDR
+            return read_PPUADDR();
             break;
         //TODO handle other special stuff
     }
@@ -94,7 +108,7 @@ uint16_t pull_pair() {
 }
 void set_NZ(uint8_t val){
     N = (val>>7) ? 1 : 0;
-    Z = val ? 0 : 1;
+    Z = (val!=0) ? 0 : 1;
 }
 void do_sbc(uint8_t value) {
     uint16_t temp = A - value - (1 - C);
@@ -118,10 +132,10 @@ uint16_t get_imm(){
 uint16_t get_rel(){
     //relative
     uint16_t res = pc + ((int8_t) mem[pc + 1]) + 2;
-    if((res >> 8) != (pc >> 8)) {
+    if((res >> 8) != ((pc+2) >> 8)) {
         inst_cycles++;
     } else {
-        // special_interrupt = true;
+        special_interrupt = true;
     }
     return res;
 }
@@ -548,14 +562,8 @@ void CPX(int mode){
             //BEQ rel
             inst_cycles += 2;
             if(Z == 1){
-                uint16_t target = pc + ((int8_t) read_mem(pc + 1)) + 2;
-                inst_cycles += 1;  // +1 cycle for taken branch
-                
-                // check page boundary crossing
-                if((target >> 8) != ((pc + 2) >> 8)) {
-                    inst_cycles += 1;  // +1 additional cycle for page boundary crossing
-                }
-                pc = target;
+                inst_cycles += 1;
+                pc = get_rel();
             } else {
                 pc = pc+2;
             }
@@ -1494,15 +1502,10 @@ int run(){
             }
         }
 
-        //Do PPU updates from last instruction
-        for(int i=0; i<inst_cycles*3; i++){
-            PPU_cycle();
-        }
-        
         if(TEST_PRINT) {
             print_instruction_bytes(pc);
-            printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu\n", 
-                A, X, Y, get_processor_status(), SP, clock_cycle);
+            printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu PPU:(%d,%d)\n", 
+                A, X, Y, get_processor_status(), SP, clock_cycle, scanline, cycles);
         }
 
         //Get instruction
@@ -1656,6 +1659,11 @@ int run(){
 
         //Update instruction/clock
         clock_cycle += inst_cycles;
+        
+        //Do PPU updates
+        for(int i=0; i<inst_cycles*3; i++){
+            PPU_cycle();
+        }
 
         //Do interrupts
         if(NMI_signal | RES_signal | (IRQ_signal && !I)){
@@ -1728,13 +1736,6 @@ int main(int argc, char *argv[]) {
 
     //Execute
     int exit_type = run();
-
-    //Close window
-    /* render_frame();
-    SDL_Delay(10000);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit(); */
 
     return exit_type;
 }
