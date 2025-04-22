@@ -1,21 +1,41 @@
 #include "cpu.h"
 
+#define TEST false
+#define TEST_PRINT true
+
 /////////////////////////////Clock
 uint64_t clock_cycle = 7;
 int inst_cycles = 0;
 
-/////////////////////////////Memory (64KB)
-unsigned char mem[0x10000];
-void write_mem(uint16_t addr, char v){
-    mem[addr] = v;
-    //TODO handle special stuff
-}
-//TODO setup special addresses as macros
-
 /////////////////////////////PPU
-char VRAM[0x2000];
+uint8_t VRAM[0x4000];
 extern SDL_Window* window;
 extern SDL_Renderer* renderer;
+extern uint8_t OAM[];
+extern uint8_t OAM2[];
+
+/////////////////////////////Memory (64KB)
+uint8_t mem[0x10000];
+void write_mem(uint16_t addr, uint8_t v){
+    mem[addr] = v;
+    switch(addr){
+        case 0x2007:
+            //PPUDATA
+            break;
+        //TODO handle other special stuff
+    }
+}
+uint8_t read_mem(uint16_t addr){
+    uint8_t res = mem[addr];
+    switch(addr){
+        case 0x2002:
+            //PPUSTATUS
+            mem[addr] &= 0b01111111;
+            break;
+        //TODO handle other special stuff
+    }
+    return res;
+}
 
 //Interrupt signals
 bool NMI_signal;
@@ -43,7 +63,7 @@ uint8_t C;
 
 //Helper functions
 uint16_t read_pair(uint16_t addr) {
-    return (mem[addr+1]<<8) | mem[addr];
+    return (read_mem(addr+1)<<8) | read_mem(addr);
 }
 void push(uint8_t val) {
     mem[0x0100 + SP] = val;
@@ -74,6 +94,19 @@ uint16_t pull_pair() {
 void set_NZ(uint8_t val){
     N = (val>>7) ? 1 : 0;
     Z = val ? 0 : 1;
+}
+void do_sbc(uint8_t value) {
+    uint16_t temp = A - value - (1 - C);
+    uint8_t result = temp & 0xFF;
+
+    // Set carry if no borrow occurred (A >= M + (1-C))
+    C = (temp < 0x100) ? 1 : 0;
+
+    // Set overflow if sign bit of A and result differ and A and M differ in sign
+    V = ((A ^ result) & (A ^ value) & 0x80) ? 1 : 0;
+
+    A = result;
+    set_NZ(A);
 }
 
 /////////////////////////////Addressing 
@@ -132,20 +165,6 @@ uint16_t get_abs_Y(){
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
-void do_sbc(uint8_t value) {
-    uint16_t temp = A - value - (1 - C);
-    uint8_t result = temp & 0xFF;
-
-    // Set carry if no borrow occurred (A >= M + (1-C))
-    C = (temp < 0x100) ? 1 : 0;
-
-    // Set overflow if sign bit of A and result differ and A and M differ in sign
-    V = ((A ^ result) & (A ^ value) & 0x80) ? 1 : 0;
-
-    A = result;
-    set_NZ(A);
-}
-
 
 ////////////////////////////aaabbb00 Instructions
 void BRK(int mode){
@@ -195,7 +214,7 @@ void JSR(int mode){
         case 1:
             //BIT zpg
             inst_cycles += 3;
-            op = mem[get_zpg()];
+            op = read_mem(get_zpg());
             N = (op>>7)&1;
             V = (op>>6)&1;
             Z = ((A & op) == 0) ? 1 : 0;
@@ -210,7 +229,7 @@ void JSR(int mode){
         case 3:
             //BIT abs
             inst_cycles += 4;
-            op = mem[get_abs()];
+            op = read_mem(get_abs());
             N = (op>>7)&1;
             V = (op>>6)&1;
             Z = ((A & op) == 0) ? 1 : 0;
@@ -289,7 +308,7 @@ void RTS(int mode){
         case 3:
             //JMP ind
             // inst_cycles += 5;
-            // //pc = mem[get_abs()];
+            // //pc = read_mem(get_abs());
             // pc = read_pair(get_abs());
             // break;
             inst_cycles += 5;
@@ -297,7 +316,7 @@ void RTS(int mode){
             // Handle the 6502 JMP indirect bug at page boundaries
             if ((addr & 0xFF) == 0xFF) {
                 // When address is $xxFF, read high byte from $xx00 instead of $(xx+1)00
-                pc = (mem[(addr & 0xFF00)] << 8) | mem[addr];
+                pc = (read_mem((addr & 0xFF00)) << 8) | read_mem(addr);
             } else {
                 // Normal case
                 pc = read_pair(addr);
@@ -326,7 +345,7 @@ void STY(int mode){
         case 1:
             //STY zpg
             inst_cycles += 3;
-            mem[get_zpg()] = Y;
+            write_mem(get_zpg(), Y);
             pc = pc+2;
             break;
         case 2:
@@ -339,7 +358,7 @@ void STY(int mode){
         case 3:
             //STY abs
             inst_cycles += 4;
-            mem[get_abs()] = Y;
+            write_mem(get_abs(), Y);
             pc = pc+3;
             break;
         case 4:
@@ -355,7 +374,7 @@ void STY(int mode){
         case 5:
             //STY zpg,X
             inst_cycles += 4;
-            mem[get_zpg_X()] = Y;
+            write_mem(get_zpg_X(), Y);
             pc = pc+2;
             break;
         case 6:
@@ -380,7 +399,7 @@ void LDY(int mode){
         case 1:
             //LDY zpg
             inst_cycles += 3;
-            Y = mem[get_zpg()];
+            Y = read_mem(get_zpg());
             set_NZ(Y);
             pc = pc+2;
             break;
@@ -394,7 +413,7 @@ void LDY(int mode){
         case 3:
             //LDY abs
             inst_cycles += 4;
-            Y = mem[get_abs()];
+            Y = read_mem(get_abs());
             set_NZ(Y);
             pc = pc+3;
             break;
@@ -411,7 +430,7 @@ void LDY(int mode){
         case 5:
             //LDY zpg,X
             inst_cycles += 4;
-            Y = mem[get_zpg_X()];
+            Y = read_mem(get_zpg_X());
             set_NZ(Y);
             pc = pc+2;
             break;
@@ -424,7 +443,7 @@ void LDY(int mode){
         case 7:
             //LDY abs,X
             inst_cycles += 4;
-            Y = mem[get_abs_X()];
+            Y = read_mem(get_abs_X());
             set_NZ(Y);
             pc = pc+3;
             break;
@@ -446,7 +465,7 @@ void CPY(int mode){
         case 1:
             //CPY zpg
             inst_cycles += 3;
-            imm = mem[get_zpg()];
+            imm = read_mem(get_zpg());
             res = Y - imm;
             set_NZ(res);
             C = (Y >= imm) ? 1 : 0;
@@ -462,7 +481,7 @@ void CPY(int mode){
         case 3:
             //CPY abs
             inst_cycles += 4;
-            imm = mem[get_abs()];
+            imm = read_mem(get_abs());
             res = Y - imm;
             set_NZ(res);
             C = (Y >= imm) ? 1 : 0;
@@ -502,7 +521,7 @@ void CPX(int mode){
         case 1:
             //CPX zpg
             inst_cycles += 3;
-            imm = mem[get_zpg()];
+            imm = read_mem(get_zpg());
             res = X - imm;
             set_NZ(res);
             C = (X >= imm) ? 1 : 0;
@@ -518,7 +537,7 @@ void CPX(int mode){
         case 3:
             //CPX abs
             inst_cycles += 4;
-            imm = mem[get_abs()];
+            imm = read_mem(get_abs());
             res = X - imm;
             set_NZ(res);
             C = (X >= imm) ? 1 : 0;
@@ -528,7 +547,7 @@ void CPX(int mode){
             //BEQ rel
             inst_cycles += 2;
             if(Z == 1){
-                uint16_t target = pc + ((int8_t) mem[pc + 1]) + 2;
+                uint16_t target = pc + ((int8_t) read_mem(pc + 1)) + 2;
                 inst_cycles += 1;  // +1 cycle for taken branch
                 
                 // check page boundary crossing
@@ -555,56 +574,56 @@ void ORA(int mode){
         case 0:
             //ORA X,ind
             inst_cycles += 6;
-            A = A | mem[get_X_ind()];
+            A = A | read_mem(get_X_ind());
             set_NZ(A);
             pc += 2;
             break;
         case 1:
             //ORA zpg
             inst_cycles += 3;
-            A = A | mem[get_zpg()];
+            A = A | read_mem(get_zpg());
             set_NZ(A);
             pc += 2;
             break;
         case 2:
             //ORA #
             inst_cycles += 2;
-            A = A | mem[pc+1];
+            A = A | read_mem(pc+1);
             set_NZ(A);
             pc += 2;
             break;
         case 3:
             //ORA abs
             inst_cycles += 4;
-            A = A | mem[get_abs()];
+            A = A | read_mem(get_abs());
             set_NZ(A);
             pc += 3;
             break;
         case 4:
             //ORA ind,Y
             inst_cycles += 5;
-            A = A | mem[get_ind_Y()];
+            A = A | read_mem(get_ind_Y());
             set_NZ(A);
             pc += 2;
             break;
         case 5:
             //ORA zpg,X
             inst_cycles += 4;
-            A = A | mem[get_zpg_X()];
+            A = A | read_mem(get_zpg_X());
             set_NZ(A);
             pc += 2;
             break;
         case 6:
             //ORA abs,Y
             inst_cycles += 4;
-            A = A | mem[get_abs_Y()];
+            A = A | read_mem(get_abs_Y());
             set_NZ(A);
             pc += 3;
             break;
         case 7:
             //ORA abs,X
             inst_cycles += 4;
-            A = A | mem[get_abs_X()];
+            A = A | read_mem(get_abs_X());
             set_NZ(A);
             pc += 3;
             break;
@@ -615,56 +634,56 @@ void AND(int mode){
         case 0:
             //AND X,ind
             inst_cycles += 6;
-            A = A & mem[get_X_ind()];
+            A = A & read_mem(get_X_ind());
             set_NZ(A);
             pc += 2;
             break;
         case 1:
             //AND zpg
             inst_cycles += 3;
-            A = A & mem[get_zpg()];
+            A = A & read_mem(get_zpg());
             set_NZ(A);
             pc += 2;
             break;
         case 2:
             //AND #
             inst_cycles += 2;
-            A = A & mem[pc+1];
+            A = A & read_mem(pc+1);
             set_NZ(A);
             pc += 2;
             break;
         case 3:
             //AND abs
             inst_cycles += 4;
-            A = A & mem[get_abs()];
+            A = A & read_mem(get_abs());
             set_NZ(A);
             pc += 3;
             break;
         case 4:
             //AND ind,Y
             inst_cycles += 5;
-            A = A & mem[get_ind_Y()];
+            A = A & read_mem(get_ind_Y());
             set_NZ(A);
             pc += 2;
             break;
         case 5:
             //AND zpg,X
             inst_cycles += 4;
-            A = A & mem[get_zpg_X()];
+            A = A & read_mem(get_zpg_X());
             set_NZ(A);
             pc += 2;
             break;
         case 6:
             //AND abs,Y
             inst_cycles += 4;
-            A = A & mem[get_abs_Y()];
+            A = A & read_mem(get_abs_Y());
             set_NZ(A);
             pc += 3;
             break;
         case 7:
             //AND abs,X
             inst_cycles += 4;
-            A = A & mem[get_abs_X()];
+            A = A & read_mem(get_abs_X());
             set_NZ(A);
             pc += 3;
             break;
@@ -675,56 +694,56 @@ void EOR(int mode){
         case 0:
             //EOR X,ind
             inst_cycles += 6;
-            A = A ^ mem[get_X_ind()];
+            A = A ^ read_mem(get_X_ind());
             set_NZ(A);
             pc += 2;
             break;
         case 1:
             //EOR zpg
             inst_cycles += 3;
-            A = A ^ mem[get_zpg()];
+            A = A ^ read_mem(get_zpg());
             set_NZ(A);
             pc += 2;
             break;
         case 2:
             //EOR #
             inst_cycles += 2;
-            A = A ^ mem[pc+1];
+            A = A ^ read_mem(pc+1);
             set_NZ(A);
             pc += 2;
             break;
         case 3:
             //EOR abs
             inst_cycles += 4;
-            A = A ^ mem[get_abs()];
+            A = A ^ read_mem(get_abs());
             set_NZ(A);
             pc += 3;
             break;
         case 4:
             //EOR ind,Y
             inst_cycles += 5;
-            A = A ^ mem[get_ind_Y()];
+            A = A ^ read_mem(get_ind_Y());
             set_NZ(A);
             pc += 2;
             break;
         case 5:
             //EOR zpg,X
             inst_cycles += 4;
-            A = A ^ mem[get_zpg_X()];
+            A = A ^ read_mem(get_zpg_X());
             set_NZ(A);
             pc += 2;
             break;
         case 6:
             //EOR abs,Y
             inst_cycles += 4;
-            A = A ^ mem[get_abs_Y()];
+            A = A ^ read_mem(get_abs_Y());
             set_NZ(A);
             pc += 3;
             break;
         case 7:
             //EOR abs,X
             inst_cycles += 4;
-            A = A ^ mem[get_abs_X()];
+            A = A ^ read_mem(get_abs_X());
             set_NZ(A);
             pc += 3;
             break;
@@ -738,7 +757,7 @@ void ADC(int mode){
         case 0:
             //ADC X,ind
             inst_cycles += 6;
-            operand = mem[get_X_ind()];
+            operand = read_mem(get_X_ind());
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -749,7 +768,7 @@ void ADC(int mode){
         case 1:
             //ADC zpg
             inst_cycles += 3;
-            operand = mem[get_zpg()];
+            operand = read_mem(get_zpg());
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -760,7 +779,7 @@ void ADC(int mode){
         case 2:
             //ADC #
             inst_cycles += 2;
-            operand = mem[pc+1];
+            operand = read_mem(pc+1);
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -771,7 +790,7 @@ void ADC(int mode){
         case 3:
             //ADC abs
             inst_cycles += 4;
-            operand = mem[get_abs()];
+            operand = read_mem(get_abs());
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -782,7 +801,7 @@ void ADC(int mode){
         case 4:
             //ADC ind,Y
             inst_cycles += 5;
-            operand = mem[get_ind_Y()];
+            operand = read_mem(get_ind_Y());
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -793,7 +812,7 @@ void ADC(int mode){
         case 5:
             //ADC zpg,X
             inst_cycles += 4;
-            operand = mem[get_zpg_X()];
+            operand = read_mem(get_zpg_X());
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -804,7 +823,7 @@ void ADC(int mode){
         case 6:
             //ADC abs,Y
             inst_cycles += 4;
-            operand = mem[get_abs_Y()];
+            operand = read_mem(get_abs_Y());
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -815,7 +834,7 @@ void ADC(int mode){
         case 7:
             //ADC abs,X
             inst_cycles += 4;
-            operand = mem[get_abs_X()];
+            operand = read_mem(get_abs_X());
             result = original_A + operand + C;
             C = (result > 0xff) ? 1 : 0;
             A = result & 0xff;
@@ -830,44 +849,44 @@ void STA(int mode){
         case 0:
             //STA X,ind
             inst_cycles += 6;
-            mem[get_X_ind()] = A;
+            write_mem(get_X_ind(), A);
             pc = pc+2;
             break;
             break;
         case 1:
             //STA zpg
             inst_cycles += 3;
-            mem[get_zpg()] = A;
+            write_mem(get_zpg(), A);
             pc = pc+2;
             break;
         case 3:
             //STA abs
             inst_cycles += 4;
-            mem[get_abs()] = A;
+            write_mem(get_abs(), A);
             pc = pc+3;
             break;
         case 4:
             //STA ind,Y
             inst_cycles += 6;
-            mem[get_ind_Y()] = A;
+            write_mem(get_ind_Y(), A);
             pc = pc+2;
             break;
         case 5:
             //STA zpg,X
             inst_cycles += 4;
-            mem[get_zpg_X()] = A;
+            write_mem(get_zpg_X(), A);
             pc = pc+2;
             break;
         case 6:
             //STA abs,Y
             inst_cycles += 5;
-            mem[get_abs_Y()] = A;
+            write_mem(get_abs_Y(), A);
             pc = pc+3;
             break;
         case 7:
             //STA abs,X
             inst_cycles += 5;
-            mem[get_abs_X()] = A;
+            write_mem(get_abs_X(), A);
             pc = pc+3;
             break;
     }
@@ -877,14 +896,14 @@ void LDA(int mode){
         case 0:
             //LDA X,ind
             inst_cycles += 6;
-            A = mem[get_X_ind()];
+            A = read_mem(get_X_ind());
             set_NZ(A);
             pc = pc+2;
             break;
         case 1:
             //LDA zpg
             inst_cycles += 3;
-            A = mem[get_zpg()];
+            A = read_mem(get_zpg());
             set_NZ(A);
             pc = pc+2;
             break;
@@ -898,35 +917,35 @@ void LDA(int mode){
         case 3:
             //LDA abs
             inst_cycles += 4;
-            A = mem[get_abs()];
+            A = read_mem(get_abs());
             set_NZ(A);
             pc = pc+3;
             break;
         case 4:
             //LDA ind,Y
             inst_cycles += 5;
-            A = mem[get_ind_Y()];
+            A = read_mem(get_ind_Y());
             set_NZ(A);
             pc = pc+2;
             break;
         case 5:
             //LDA zpg,X
             inst_cycles += 4;
-            A = mem[get_zpg_X()];
+            A = read_mem(get_zpg_X());
             set_NZ(A);
             pc = pc+2;
             break;
         case 6:
             //LDA abs,Y
             inst_cycles += 4;
-            A = mem[get_abs_Y()];
+            A = read_mem(get_abs_Y());
             set_NZ(A);
             pc = pc+3;
             break;
         case 7:
             //LDA abs,X
             inst_cycles += 4;
-            A = mem[get_abs_X()];
+            A = read_mem(get_abs_X());
             set_NZ(A);
             pc = pc+3;
             break;
@@ -939,7 +958,7 @@ void CMP(int mode){
         case 0:
             //CMP X,ind
             inst_cycles += 6;
-            val = mem[get_X_ind()];
+            val = read_mem(get_X_ind());
             res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
@@ -948,7 +967,7 @@ void CMP(int mode){
         case 1:
             //CMP zpg
             inst_cycles += 3;
-            val = mem[get_zpg()];
+            val = read_mem(get_zpg());
             res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
@@ -966,7 +985,7 @@ void CMP(int mode){
         case 3:
             //CMP abs
             inst_cycles += 4;
-            val = mem[get_abs()];
+            val = read_mem(get_abs());
             res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
@@ -975,7 +994,7 @@ void CMP(int mode){
         case 4:
             //CMP ind,Y
             inst_cycles += 5;
-            val = mem[get_ind_Y()];
+            val = read_mem(get_ind_Y());
             res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
@@ -984,7 +1003,7 @@ void CMP(int mode){
         case 5:
             //CMP zpg,X
             inst_cycles += 4;
-            val = mem[get_zpg_X()];
+            val = read_mem(get_zpg_X());
             res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
@@ -993,7 +1012,7 @@ void CMP(int mode){
         case 6:
             //CMP abs,Y
             inst_cycles += 4;
-            val = mem[get_abs_Y()];
+            val = read_mem(get_abs_Y());
             res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
@@ -1002,7 +1021,7 @@ void CMP(int mode){
         case 7:
             //CMP abs,X
             inst_cycles += 4;
-            val = mem[get_abs_X()];
+            val = read_mem(get_abs_X());
             res = A - val;
             set_NZ(res);
             C = (A >= val) ? 1 : 0;
@@ -1015,13 +1034,13 @@ void SBC(int mode){
         case 0:
             //SBC X,ind
             inst_cycles += 6;
-            do_sbc(mem[get_X_ind()]);
+            do_sbc(read_mem(get_X_ind()));
             pc += 2;
             break;
         case 1:
             //SBC zpg
             inst_cycles += 3;
-            do_sbc(mem[get_zpg()]);
+            do_sbc(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
@@ -1033,31 +1052,31 @@ void SBC(int mode){
         case 3:
             //SBC abs
             inst_cycles += 4;
-            do_sbc(mem[get_abs()]);
+            do_sbc(read_mem(get_abs()));
             pc += 3;
             break;
         case 4:
             //SBC ind,Y
             inst_cycles += 5;
-            do_sbc(mem[get_ind_Y()]);
+            do_sbc(read_mem(get_ind_Y()));
             pc += 2;
             break;
         case 5:
             //SBC zpg,X
             inst_cycles += 4;
-            do_sbc(mem[get_zpg_X()]);
+            do_sbc(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 6:
             //SBC abs,Y
             inst_cycles += 4;
-            do_sbc(mem[get_abs_Y()]);
+            do_sbc(read_mem(get_abs_Y()));
             pc += 3;
             break;
         case 7:
             //SBC abs,X
             inst_cycles += 4;
-            do_sbc(mem[get_abs_X()]);
+            do_sbc(read_mem(get_abs_X()));
             pc += 3;
             break;
     }
@@ -1069,9 +1088,9 @@ void ASL(int mode){
         case 1:
             //ASL zpg
             inst_cycles += 5;
-            C = (mem[get_zpg()] >> 7) & 1;
-            mem[get_zpg()] = mem[get_zpg()] << 1;
-            set_NZ(mem[get_zpg()]);
+            C = (read_mem(get_zpg()) >> 7) & 1;
+            write_mem(get_zpg(), read_mem(get_zpg()) << 1);
+            set_NZ(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
@@ -1085,25 +1104,25 @@ void ASL(int mode){
         case 3:
             //ASL abs
             inst_cycles += 6;
-            C = (mem[get_abs()] >> 7) & 1;
-            mem[get_abs()] = mem[get_abs()] << 1;
-            set_NZ(mem[get_abs()]);
+            C = (read_mem(get_abs()) >> 7) & 1;
+            write_mem(get_abs(), read_mem(get_abs()) << 1);
+            set_NZ(read_mem(get_abs()));
             pc += 3;
             break;
         case 5:
             //ASL zpg,X
             inst_cycles += 6;
-            C = (mem[get_zpg_X()] >> 7) & 1;
-            mem[get_zpg_X()] = mem[get_zpg_X()] << 1;
-            set_NZ(mem[get_zpg_X()]);
+            C = (read_mem(get_zpg_X()) >> 7) & 1;
+            write_mem(get_zpg_X(), read_mem(get_zpg_X()) << 1);
+            set_NZ(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 7:
             //ASL abs,X
             inst_cycles += 7;
-            C = (mem[get_abs_X()] >> 7) & 1;
-            mem[get_abs_X()] = mem[get_abs_X()] << 1;
-            set_NZ(mem[get_abs_X()]);
+            C = (read_mem(get_abs_X()) >> 7) & 1;
+            write_mem(get_abs_X(), read_mem(get_abs_X()) << 1);
+            set_NZ(read_mem(get_abs_X()));
             pc += 3;
             break;
     }
@@ -1113,9 +1132,9 @@ void ROL(int mode){
         case 1:
             //ROL zpg
             inst_cycles += 5;
-            C = (mem[get_zpg()] >> 7) & 1;
-            mem[get_zpg()] = (mem[get_zpg()] << 1) + C;
-            set_NZ(mem[get_zpg()]);
+            C = (read_mem(get_zpg()) >> 7) & 1;
+            write_mem(get_zpg(), (read_mem(get_zpg()) << 1) + C);
+            set_NZ(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
@@ -1129,25 +1148,25 @@ void ROL(int mode){
         case 3:
             //ROL abs
             inst_cycles += 6;
-            C = (mem[get_abs()] >> 7) & 1;
-            mem[get_abs()] = (mem[get_abs()] << 1) + C;
-            set_NZ(mem[get_abs()]);
+            C = (read_mem(get_abs()) >> 7) & 1;
+            write_mem(get_abs(), (read_mem(get_abs()) << 1) + C);
+            set_NZ(read_mem(get_abs()));
             pc += 3;
             break;
         case 5:
             //ROL zpg,X
             inst_cycles += 6;
-            C = (mem[get_zpg_X()] >> 7) & 1;
-            mem[get_zpg_X()] = (mem[get_zpg_X()] << 1) + C;
-            set_NZ(mem[get_zpg_X()]);
+            C = (read_mem(get_zpg_X()) >> 7) & 1;
+            write_mem(get_zpg_X(), (read_mem(get_zpg_X()) << 1) + C);
+            set_NZ(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 7:
             //ROL abs,X
             inst_cycles += 7;
-            C = (mem[get_abs_X()] >> 7) & 1;
-            mem[get_abs_X()] = (mem[get_abs_X()] << 1) + C;
-            set_NZ(mem[get_abs_X()]);
+            C = (read_mem(get_abs_X()) >> 7) & 1;
+            write_mem(get_abs_X(), (read_mem(get_abs_X()) << 1) + C);
+            set_NZ(read_mem(get_abs_X()));
             pc += 3;
             break;
     }
@@ -1157,9 +1176,9 @@ void LSR(int mode){
         case 1:
             //LSR zpg
             inst_cycles += 5;
-            C = mem[get_zpg()] & 1;
-            mem[get_zpg()] = mem[get_zpg()] >> 1;
-            set_NZ(mem[get_zpg()]);
+            C = read_mem(get_zpg()) & 1;
+            write_mem(get_zpg(), read_mem(get_zpg()) >> 1);
+            set_NZ(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
@@ -1173,25 +1192,25 @@ void LSR(int mode){
         case 3:
             //LSR abs
             inst_cycles += 6;
-            C = mem[get_abs()] & 1;
-            mem[get_abs()] = mem[get_abs()] >> 1;
-            set_NZ(mem[get_abs()]);
+            C = read_mem(get_abs()) & 1;
+            write_mem(get_abs(), read_mem(get_abs()) >> 1);
+            set_NZ(read_mem(get_abs()));
             pc += 3;
             break;
         case 5:
             //LSR zpg,X
             inst_cycles += 6;
-            C = mem[get_zpg_X()] & 1;
-            mem[get_zpg_X()] = mem[get_zpg_X()] >> 1;
-            set_NZ(mem[get_zpg_X()]);
+            C = read_mem(get_zpg_X()) & 1;
+            write_mem(get_zpg_X(), read_mem(get_zpg_X()) >> 1);
+            set_NZ(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 7:
             //LSR abs,X
             inst_cycles += 7;
-            C = mem[get_abs_X()] & 1;
-            mem[get_abs_X()] = mem[get_abs_X()] >> 1;
-            set_NZ(mem[get_abs_X()]);
+            C = read_mem(get_abs_X()) & 1;
+            write_mem(get_abs_X(), read_mem(get_abs_X()) >> 1);
+            set_NZ(read_mem(get_abs_X()));
             pc += 3;
             break;
     }
@@ -1203,9 +1222,9 @@ void ROR(int mode){
             //ROR zpg
             inst_cycles += 5;
             old_C = C;  // save old carry
-            C = mem[get_zpg()] & 1;
-            mem[get_zpg()] = (mem[get_zpg()] >> 1) + (old_C << 7);
-            set_NZ(mem[get_zpg()]);
+            C = read_mem(get_zpg()) & 1;
+            write_mem(get_zpg(), (read_mem(get_zpg()) >> 1) + (old_C << 7));
+            set_NZ(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
@@ -1221,27 +1240,27 @@ void ROR(int mode){
             //ROR abs
             inst_cycles += 6;
             old_C = C;  // save old carry
-            C = mem[get_abs()] & 1;
-            mem[get_abs()] = (mem[get_abs()] >> 1) + (old_C << 7);
-            set_NZ(mem[get_abs()]);
+            C = read_mem(get_abs()) & 1;
+            write_mem(get_abs(), (read_mem(get_abs()) >> 1) + (old_C << 7));
+            set_NZ(read_mem(get_abs()));
             pc += 3;
             break;
         case 5:
             //ROR zpg,X
             inst_cycles += 6;
             old_C = C;  // save old carry
-            C = mem[get_zpg_X()] & 1;
-            mem[get_zpg_X()] = (mem[get_zpg_X()] >> 1) + (old_C << 7);
-            set_NZ(mem[get_zpg_X()]);
+            C = read_mem(get_zpg_X()) & 1;
+            write_mem(get_zpg_X(), (read_mem(get_zpg_X()) >> 1) + (old_C << 7));
+            set_NZ(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 7:
             //ROR abs,X
             inst_cycles += 7;
             old_C = C;  // save old carry
-            C = mem[get_abs_X()] & 1;
-            mem[get_abs_X()] = (mem[get_abs_X()] >> 1) + (old_C << 7);
-            set_NZ(mem[get_abs_X()]);
+            C = read_mem(get_abs_X()) & 1;
+            write_mem(get_abs_X(), (read_mem(get_abs_X()) >> 1) + (old_C << 7));
+            set_NZ(read_mem(get_abs_X()));
             pc += 3;
             break;
     }
@@ -1251,7 +1270,7 @@ void STX(int mode){
         case 1:
             //STX zpg
             inst_cycles += 3;
-            mem[get_zpg()] = X;
+            write_mem(get_zpg(), X);
             pc += 2;
             break;
         case 2:
@@ -1264,13 +1283,13 @@ void STX(int mode){
         case 3:
             //STX abs
             inst_cycles += 4;
-            mem[get_abs()] = X;
+            write_mem(get_abs(), X);
             pc += 3;
             break;
         case 5:
             //STX zpg,Y
             inst_cycles += 4;
-            mem[get_zpg_Y()] = X;
+            write_mem(get_zpg_Y(), X);
             pc += 2;
             break;
         case 6:
@@ -1293,7 +1312,7 @@ void LDX(int mode){
         case 1:
             //LDX zpg
             inst_cycles += 3;
-            X = mem[get_zpg()];
+            X = read_mem(get_zpg());
             set_NZ(X);
             pc += 2;
             break;
@@ -1307,14 +1326,14 @@ void LDX(int mode){
         case 3:
             //LDX abs
             inst_cycles += 4;
-            X = mem[get_abs()];
+            X = read_mem(get_abs());
             set_NZ(X);
             pc += 3; 
             break;
         case 5:
             //LDX zpg,Y
             inst_cycles += 4;
-            X = mem[get_zpg_Y()];
+            X = read_mem(get_zpg_Y());
             set_NZ(X);
             pc += 2;
             break;
@@ -1328,7 +1347,7 @@ void LDX(int mode){
         case 7:
             //LDX abs,Y
             inst_cycles += 4;
-            X = mem[get_abs_Y()];
+            X = read_mem(get_abs_Y());
             set_NZ(X);
             pc += 3;
             break;
@@ -1339,8 +1358,8 @@ void DEC(int mode){
         case 1:
             //DEC zpg
             inst_cycles += 5;
-            mem[get_zpg()] = mem[get_zpg()] - 1;
-            set_NZ(mem[get_zpg()]);
+            write_mem(get_zpg(), read_mem(get_zpg()) - 1);
+            set_NZ(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
@@ -1353,22 +1372,22 @@ void DEC(int mode){
         case 3:
             //DEC abs
             inst_cycles += 6;
-            mem[get_abs()] = mem[get_abs()] - 1;
-            set_NZ(mem[get_abs()]);
+            write_mem(get_abs(), read_mem(get_abs()) - 1);
+            set_NZ(read_mem(get_abs()));
             pc += 3;
             break;
         case 5:
             //DEC zpg,X
             inst_cycles += 6;
-            mem[get_zpg_X()] = mem[get_zpg_X()] - 1;
-            set_NZ(mem[get_zpg_X()]);
+            write_mem(get_zpg_X(), read_mem(get_zpg_X()) - 1);
+            set_NZ(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 7:
             //DEC abs,X
             inst_cycles += 7;
-            mem[get_abs_X()] = mem[get_abs_X()] - 1;
-            set_NZ(mem[get_abs_X()]);
+            write_mem(get_abs_X(), read_mem(get_abs_X()) - 1);
+            set_NZ(read_mem(get_abs_X()));
             pc += 3;
             break;
     }
@@ -1378,8 +1397,8 @@ void INC(int mode){
         case 1:
             //INC zpg
             inst_cycles += 5;
-            mem[get_zpg()] = mem[get_zpg()] + 1;
-            set_NZ(mem[get_zpg()]);
+            write_mem(get_zpg(), read_mem(get_zpg()) + 1);
+            set_NZ(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
@@ -1390,28 +1409,28 @@ void INC(int mode){
         case 3:
             //INC abs
             inst_cycles += 6;
-            mem[get_abs()] = mem[get_abs()] + 1;
-            set_NZ(mem[get_abs()]);
+            write_mem(get_abs(), read_mem(get_abs()) + 1);
+            set_NZ(read_mem(get_abs()));
             pc += 3;
             break;
         case 5:
             //INC zpg,X
             inst_cycles += 6;
-            mem[get_zpg_X()] = mem[get_zpg_X()] + 1;
-            set_NZ(mem[get_zpg_X()]);
+            write_mem(get_zpg_X(), read_mem(get_zpg_X()) + 1);
+            set_NZ(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 7:
             //INC abs,X
             inst_cycles += 7;
-            mem[get_abs_X()] = mem[get_abs_X()] + 1;
-            set_NZ(mem[get_abs_X()]);
+            write_mem(get_abs_X(), read_mem(get_abs_X()) + 1);
+            set_NZ(read_mem(get_abs_X()));
             pc += 3;
             break;
     }
 }
 
-int tester=10000;
+int tester=10;
 /////////////////////////////Execute program
 uint8_t get_processor_status() {
     return (N << 7) | (V << 6) | (1 << 5) | (B << 4) | (D << 3) | (I << 2) | (Z << 1) | C;
@@ -1422,7 +1441,7 @@ void print_instruction_bytes(uint16_t address) {
     printf("%04X  %02X ", address, mem[address]);
     
     int instr_len = 1;
-    uint8_t opcode = mem[address];
+    uint8_t opcode = read_mem(address);
     
     if ((opcode & 0x0F) == 0x00 || (opcode & 0x0F) == 0x08 ||
         (opcode & 0x0F) == 0x0A || (opcode & 0x0F) == 0x0C) {
@@ -1455,26 +1474,36 @@ void print_instruction_bytes(uint16_t address) {
     
     if (instr_len > 2) printf("%02X ", mem[address + 2]);
     else printf("   ");
-    
-    printf("");
 }
 
 
 int run(){
     while(true){
+
+        //Handle exits
+        SDL_Event e;
+        while (SDL_PollEvent(&e) != 0) {
+            if (e.type == SDL_QUIT) {
+                SDL_DestroyRenderer(renderer);
+                SDL_DestroyWindow(window);
+                SDL_Quit();
+                exit(0);
+            }
+        }
+
         //Do PPU updates from last instruction
         for(int i=0; i<inst_cycles*3; i++){
             PPU_cycle();
         }
-
-        //printf("%x %02x\n", pc, (unsigned)(unsigned char)mem[pc]);
         
-        print_instruction_bytes(pc);
-        printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%llu\n", 
-            A, X, Y, get_processor_status(), SP, clock_cycle);
+        if(TEST_PRINT) {
+            print_instruction_bytes(pc);
+            printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu\n", 
+                A, X, Y, get_processor_status(), SP, clock_cycle);
+        }
 
         //Get instruction
-        unsigned char inst = mem[pc];
+        unsigned char inst = read_mem(pc);
         unsigned char inst_a = inst >> 5;
         unsigned char inst_b = (inst >> 2) & 0b111;
         unsigned char inst_c = inst & 0b11;
@@ -1636,15 +1665,26 @@ int run(){
             I = 1;
 
             //Do jump
-            if(NMI_signal) pc = read_pair(NMI_addr);
-            if(RES_signal) pc = read_pair(RES_addr);
-            if(IRQ_signal) pc = read_pair(IRQ_addr);
+            if(NMI_signal) {
+                pc = read_pair(NMI_addr);
+                NMI_signal = false;
+            }
+            if(RES_signal) {
+                pc = read_pair(RES_addr);
+                RES_signal = false;
+            }
+            if(IRQ_signal) {
+                pc = read_pair(IRQ_addr);
+                IRQ_signal = false;
+            }
         }
 
-        tester-=1;
-        if(tester <= 0) {
-            printf(mem[0x6000] == 0x00 ? "Success\n" : "Fail\n"); 
-            break; 
+        if(TEST) {
+            tester-=1;
+            if(tester <= 0) {
+                printf(mem[0x6000] == 0x00 ? "Success\n" : "Fail\n"); 
+                break; 
+            }
         }
     }
     return 0;
@@ -1669,8 +1709,8 @@ void loadROM(std::string file_name){
         VRAM[i] = c;
     }
     //Initialize pc
-    //pc = read_pair(RES_addr);
-    pc = 0xc000;
+    pc = read_pair(RES_addr);
+    //pc = 0xc000;
 }
 
 
@@ -1687,11 +1727,11 @@ int main(int argc, char *argv[]) {
     int exit_type = run();
 
     //Close window
-    render_frame();
+    /* render_frame();
     SDL_Delay(10000);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
-    SDL_Quit();
+    SDL_Quit(); */
 
     return exit_type;
 }

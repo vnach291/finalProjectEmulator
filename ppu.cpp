@@ -1,7 +1,7 @@
 #include "ppu.h"
 
 /////////////////////////////Special Addresses
-extern unsigned char mem[];
+extern unsigned char mem[];//TODO prob make into independent regs
 #define PPUCTRL mem[0x2000]
 #define PPUMASK mem[0x2001]
 #define PPUSTATUS mem[0x2002]
@@ -14,9 +14,9 @@ extern unsigned char mem[];
 extern bool NMI_signal;
 
 /////////////////////////////Tracking vars
-const int FPS = 60;
-const int SCREEN_WIDTH = 128;
-const int SCREEN_HEIGHT = 256;
+const int FPS = 30;
+const int SCREEN_WIDTH = 256;
+const int SCREEN_HEIGHT = 240;
 const int SCREEN_SCALE = 2;
 int cycles = 0;
 int scanline = 0;
@@ -42,7 +42,7 @@ void setup_PPU(){
     }
 
     //Create window
-    window = SDL_CreateWindow("Emulate Ds",
+    window = SDL_CreateWindow("o7ulator",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
@@ -62,7 +62,7 @@ void setup_PPU(){
     }
 
     //temp
-    SDL_Color colors[4];
+    /* SDL_Color colors[4];
     colors[0] = (SDL_Color){0,0,0,0};
     colors[1] = (SDL_Color){80,80,80,255};
     colors[2] = (SDL_Color){160,160,160,255};
@@ -77,7 +77,7 @@ void setup_PPU(){
                 }
             }
         }
-    }
+    } */
 }
 void render_frame(){
     //Clear previous frame
@@ -103,7 +103,54 @@ void render_frame(){
     SDL_Delay(1000/FPS);
 }
 
+
+/////////////////////////////Palette 
+//Source: https://emudev.de/nes-emulator/palettes-attribute-tables-and-sprites/
+//Reformatted with AI
+SDL_Color PALETTE[64] = {
+    {124, 124, 124, 255}, {0, 0, 252, 255}, {0, 0, 188, 255}, {68, 40, 188, 255},
+    {148, 0, 132, 255}, {168, 0, 32, 255}, {168, 16, 0, 255}, {136, 20, 0, 255},
+    {80, 48, 0, 255}, {0, 120, 0, 255}, {0, 104, 0, 255}, {0, 88, 0, 255},
+    {0, 64, 88, 255}, {0, 0, 0, 255}, {0, 0, 0, 255}, {0, 0, 0, 255},
+    
+    {188, 188, 188, 255}, {0, 120, 248, 255}, {0, 88, 248, 255}, {104, 68, 252, 255},
+    {216, 0, 204, 255}, {228, 0, 88, 255}, {248, 56, 0, 255}, {228, 92, 16, 255},
+    {172, 124, 0, 255}, {0, 184, 0, 255}, {0, 168, 0, 255}, {0, 168, 68, 255},
+    {0, 136, 136, 255}, {0, 0, 0, 255}, {0, 0, 0, 255}, {0, 0, 0, 255},
+    
+    {248, 248, 248, 255}, {60, 188, 252, 255}, {104, 136, 252, 255}, {152, 120, 248, 255},
+    {248, 120, 248, 255}, {248, 88, 152, 255}, {248, 120, 88, 255}, {252, 160, 68, 255},
+    {248, 184, 0, 255}, {184, 248, 24, 255}, {88, 216, 84, 255}, {88, 248, 152, 255},
+    {0, 232, 216, 255}, {120, 120, 120, 255}, {0, 0, 0, 255}, {0, 0, 0, 255},
+    
+    {252, 252, 252, 255}, {164, 228, 252, 255}, {184, 184, 248, 255}, {216, 184, 248, 255},
+    {248, 184, 248, 255}, {248, 164, 192, 255}, {240, 208, 176, 255}, {252, 224, 168, 255},
+    {248, 216, 120, 255}, {216, 248, 120, 255}, {184, 248, 184, 255}, {184, 248, 216, 255},
+    {0, 252, 252, 255}, {248, 216, 248, 255}, {0, 0, 0, 255}, {0, 0, 0, 255}
+};
+
+/////////////////////////////OAM
+uint8_t OAM[0x100];
+uint8_t OAM2[0x20];
+
+/////////////////////////////Helper methods/macros
+//Reg interpreters
+#define sprite_pattern_table_index ((PPUCTRL>>3)&1)
+#define bg_pattern_table_index ((PPUCTRL>>4)&1)
+#define nametable_index (PPUCTRL&0b11)
+#define NMI_enabled (PPUCTRL>>7)
+#define should_render_sprite ((PPUMASK>>4)&1)
+#define should_render_bg ((PPUMASK>>3)&1)
+//Address finders
+#define sprite_pattern_address(i, fine_y) ((sprite_pattern_table_index<<12) | i | (fine_y&0b111))
+#define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | i | (fine_y&0b111))
+#define nametable_address(x, y) ((0x2000 | (nametable_index<<10)) + ((y<<5) | x))
+#define attribute_address(x, y) ((0x2000 | (nametable_index<<10)) + (0x3c0) + ((y<<3) | x))
+#define attribute_palette_index(dat, i) ((dat>>(i<<1))&0b11)
+#define color_address(palette, i, type) (0x3f00 | (type<<4) | (palette<<2) | i)
+
 /////////////////////////////Run PPU
+bool hit_this_frame;
 void PPU_cycle(){
     //Increment cycle and handle end of scanline
     cycles++;
@@ -113,27 +160,65 @@ void PPU_cycle(){
     }
     
     //Handle draw to buffer
-    if(scanline >= 0 && scanline < 240){
-        uint16_t nametable = 0x2000 | ((PPUCTRL&0b11) << 10);
-        uint16_t spritetable = ((PPUCTRL>>3)&1) << 12;
-        uint16_t bgtable = ((PPUCTRL>>4)&1) << 12;
-        bool render_left_bg = ((PPUMASK>>1)&1);
-        bool render_left_sprite = ((PPUMASK>>2)&1);
-        bool render_bg = ((PPUMASK>>3)&1);
-        bool render_sprite = ((PPUMASK>>4)&1);
-        //TODO
+    if(scanline >= 0 && scanline <= 239){
+        //Render
+        if(cycles >= 1 && cycles <= 256){
+            //Get sprite pixel
+            SDL_Color sprite_color;
+            if(should_render_sprite){
+                for(int i=0; i<8; i++){
+                    //TODO read from OAM
+                    //TODO sprite 0 collision set
+                    if(!hit_this_frame){
+                        PPUSTATUS |= 0b01000000; //sprite 0 hit
+                        hit_this_frame = true;;
+                    }
+                }
+            }
+            //Get bg pixel
+            SDL_Color bg_color;
+            if(should_render_bg){
+                //TODO fix (read nametable -> read pattern + read attribute -> read palette)
+                int nt_index = (scanline>>3)*32 + (cycles>>3);
+                int color_index = VRAM[bg_pattern_address(nt_index, scanline%8)];
+
+                int at_x = ((cycles-1)>>4);
+                int at_y = (scanline>>4);
+                int palette_index = VRAM[attribute_address(at_x, at_y)];
+                int color_from_palette = VRAM[color_address(palette_index, color_index, 0)];
+                bg_color = PALETTE[color_from_palette];
+            }
+            //Draw with logic
+            //TODO logic
+            frame_buffer[scanline*256 + (cycles-1)] = bg_color;
+        }
+        //Fill OAM2 once
+        else if(cycles == 257) {
+            //TODO
+        }
     }
 
     //Handle VBlank start
     else if(scanline == 241 && cycles == 1){
-        PPUSTATUS |= 0b10000000;
-        //NMI_signal = true;
+        if(NMI_enabled){
+            NMI_signal = true;
+        }
+        PPUSTATUS |= 0b10000000; //enable VBlank
         render_frame();
     }
 
     //Handle VBlank ends
     else if(scanline == 261 && cycles == 1){
-        PPUSTATUS = (PPUSTATUS|0b10000000) ^ 0b10000000;
-        //NMI_signal = false;
+        //TODO disable based on PPUCTRL
+        PPUSTATUS &= 0b01111111; //disable VBlank
+    }
+
+    //Handle reset
+    else if(scanline == 261){
+        //TODO odd check
+        if(cycles == 340){
+            scanline = 0;
+            hit_this_frame = false;
+        }
     }
 }
