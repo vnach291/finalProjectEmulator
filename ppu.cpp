@@ -34,7 +34,10 @@ SDL_Window* window;
 SDL_Texture* texture;
 SDL_Renderer* renderer;
 SDL_Color frame_buffer[SCREEN_WIDTH*SCREEN_HEIGHT];
+bool has_setup;
 void setup_PPU(){
+    has_setup = true;
+
     //Initialize SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("unable to initialize SDL\n");
@@ -80,6 +83,8 @@ void setup_PPU(){
     } */
 }
 void render_frame(){
+    if(!has_setup) return;
+
     //Clear previous frame
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);

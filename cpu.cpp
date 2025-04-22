@@ -2,6 +2,7 @@
 
 #define TEST false
 #define TEST_PRINT true
+#define SCREEN true
 
 /////////////////////////////Clock
 uint64_t clock_cycle = 7;
@@ -1481,13 +1482,15 @@ int run(){
     while(true){
 
         //Handle exits
-        SDL_Event e;
-        while (SDL_PollEvent(&e) != 0) {
-            if (e.type == SDL_QUIT) {
-                SDL_DestroyRenderer(renderer);
-                SDL_DestroyWindow(window);
-                SDL_Quit();
-                exit(0);
+        if(SCREEN){
+            SDL_Event e;
+            while (SDL_PollEvent(&e) != 0) {
+                if (e.type == SDL_QUIT) {
+                    SDL_DestroyRenderer(renderer);
+                    SDL_DestroyWindow(window);
+                    SDL_Quit();
+                    exit(0);
+                }
             }
         }
 
@@ -1721,7 +1724,7 @@ int main(int argc, char *argv[]) {
     loadROM(file_name);
 
     //Set up window
-    setup_PPU();
+    if(SCREEN) setup_PPU();
 
     //Execute
     int exit_type = run();
