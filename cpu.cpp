@@ -1,7 +1,7 @@
 #include "cpu.h"
 
 /////////////////////////////Clock
-uint64_t clock_cycle = 0;
+uint64_t clock_cycle = 7;
 int inst_cycles = 0;
 
 /////////////////////////////Memory (64KB)
@@ -31,12 +31,12 @@ uint16_t pc;
 uint8_t A;
 uint8_t X;
 uint8_t Y;
-uint8_t SP = 0xff;
+uint8_t SP = 0xfd;
 uint8_t N;
 uint8_t V;
 uint8_t B;
 uint8_t D;
-uint8_t I;
+uint8_t I = 1;
 uint8_t Z;
 uint8_t C;
 #define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
@@ -46,7 +46,7 @@ uint16_t read_pair(uint16_t addr) {
     return (mem[addr+1]<<8) | mem[addr];
 }
 void push(uint8_t val) {
-    mem[SP] = val;
+    mem[0x0100 + SP] = val;
     SP-=1;
 }
 void push_pair(uint16_t val) {
@@ -55,7 +55,7 @@ void push_pair(uint16_t val) {
 }
 uint8_t pull() {
     SP+=1;
-    return mem[SP];
+    return mem[0x0100 + SP];
 }
 void pull_SR() {
     uint8_t res = pull();
@@ -83,11 +83,11 @@ uint16_t get_imm(){
 }
 uint16_t get_rel(){
     //relative
-    uint16_t res = pc+((int8_t)mem[pc+1])+2;
-    if(res>>8 != pc>>8) {
+    uint16_t res = pc + ((int8_t) mem[pc + 1]) + 2;
+    if((res >> 8) != (pc >> 8)) {
         inst_cycles++;
     } else {
-        special_interrupt = true;
+        // special_interrupt = true;
     }
     return res;
 }
@@ -97,19 +97,19 @@ uint16_t get_zpg(){
 }
 uint16_t get_zpg_X(){
     //zero page X index
-    return (mem[pc+1] + X) % 0xff;
+    return (mem[pc+1] + X) & 0xFF;
 }
 uint16_t get_zpg_Y(){
     //zero page Y index
-    return (mem[pc+1] + Y) % 0xff;
+    return (mem[pc+1] + Y) & 0xFF;
 }
 uint16_t get_X_ind(){
     //indirect X pre-index
-    return (mem[(mem[pc+1] + X + 1) % 0xff]<<8) | mem[(mem[pc+1] + X) % 0xff];
+    return (mem[(mem[pc+1] + X + 1) & 0xFF]<<8) | mem[(mem[pc+1] + X) & 0xFF];
 }
 uint16_t get_ind_Y(){
     //indirect Y post-index
-    uint16_t res1 = (mem[(mem[pc+1] + 1) % 0xff]<<8) | mem[mem[pc+1]];
+    uint16_t res1 = (mem[(mem[pc+1] + 1) & 0xFF]<<8) | mem[mem[pc+1]];
     uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
@@ -198,7 +198,7 @@ void JSR(int mode){
             op = mem[get_zpg()];
             N = (op>>7)&1;
             V = (op>>6)&1;
-            Z = (A & op) ? 1 : 0;
+            Z = ((A & op) == 0) ? 1 : 0;
             pc = pc+2;
             break;
         case 2:
@@ -213,7 +213,7 @@ void JSR(int mode){
             op = mem[get_abs()];
             N = (op>>7)&1;
             V = (op>>6)&1;
-            Z = (A & op) ? 1 : 0;
+            Z = ((A & op) == 0) ? 1 : 0;
             pc = pc+3;
             break;
         case 4:
@@ -272,6 +272,7 @@ void RTI(int mode){
     }
 }
 void RTS(int mode){
+    uint16_t addr; 
     switch(mode){
         case 0:
             //RTS impl
@@ -287,8 +288,20 @@ void RTS(int mode){
             break;
         case 3:
             //JMP ind
+            // inst_cycles += 5;
+            // //pc = mem[get_abs()];
+            // pc = read_pair(get_abs());
+            // break;
             inst_cycles += 5;
-            pc = mem[get_abs()];
+            addr = get_abs();
+            // Handle the 6502 JMP indirect bug at page boundaries
+            if ((addr & 0xFF) == 0xFF) {
+                // When address is $xxFF, read high byte from $xx00 instead of $(xx+1)00
+                pc = (mem[(addr & 0xFF00)] << 8) | mem[addr];
+            } else {
+                // Normal case
+                pc = read_pair(addr);
+            }
             break;
         case 4:
             //BVS rel
@@ -400,7 +413,7 @@ void LDY(int mode){
             inst_cycles += 4;
             Y = mem[get_zpg_X()];
             set_NZ(Y);
-            pc = pc+3;
+            pc = pc+2;
             break;
         case 6:
             //CLV impl
@@ -413,7 +426,7 @@ void LDY(int mode){
             inst_cycles += 4;
             Y = mem[get_abs_X()];
             set_NZ(Y);
-            pc = pc+1;
+            pc = pc+3;
             break;
     }
 }
@@ -515,8 +528,14 @@ void CPX(int mode){
             //BEQ rel
             inst_cycles += 2;
             if(Z == 1){
-                inst_cycles += 1;
-                pc = get_rel();
+                uint16_t target = pc + ((int8_t) mem[pc + 1]) + 2;
+                inst_cycles += 1;  // +1 cycle for taken branch
+                
+                // check page boundary crossing
+                if((target >> 8) != ((pc + 2) >> 8)) {
+                    inst_cycles += 1;  // +1 additional cycle for page boundary crossing
+                }
+                pc = target;
             } else {
                 pc = pc+2;
             }
@@ -1178,44 +1197,50 @@ void LSR(int mode){
     }
 }
 void ROR(int mode){
+    uint8_t old_C;
     switch(mode){
         case 1:
             //ROR zpg
             inst_cycles += 5;
+            old_C = C;  // save old carry
             C = mem[get_zpg()] & 1;
-            mem[get_zpg()] = (mem[get_zpg()] >> 1) + (C << 7);
+            mem[get_zpg()] = (mem[get_zpg()] >> 1) + (old_C << 7);
             set_NZ(mem[get_zpg()]);
             pc += 2;
             break;
         case 2:
             //ROR A
             inst_cycles += 2;
+            old_C = C;  // save old carry
             C = A & 1;
-            A = (A >> 1) + (C << 7);
+            A = (A >> 1) + (old_C << 7);
             set_NZ(A);
             pc += 1;
             break;
         case 3:
             //ROR abs
             inst_cycles += 6;
+            old_C = C;  // save old carry
             C = mem[get_abs()] & 1;
-            mem[get_abs()] = (mem[get_abs()] >> 1) + (C << 7);
+            mem[get_abs()] = (mem[get_abs()] >> 1) + (old_C << 7);
             set_NZ(mem[get_abs()]);
             pc += 3;
             break;
         case 5:
             //ROR zpg,X
             inst_cycles += 6;
+            old_C = C;  // save old carry
             C = mem[get_zpg_X()] & 1;
-            mem[get_zpg_X()] = (mem[get_zpg_X()] >> 1) + (C << 7);
+            mem[get_zpg_X()] = (mem[get_zpg_X()] >> 1) + (old_C << 7);
             set_NZ(mem[get_zpg_X()]);
             pc += 2;
             break;
         case 7:
             //ROR abs,X
             inst_cycles += 7;
+            old_C = C;  // save old carry
             C = mem[get_abs_X()] & 1;
-            mem[get_abs_X()] = (mem[get_abs_X()] >> 1) + (C << 7);
+            mem[get_abs_X()] = (mem[get_abs_X()] >> 1) + (old_C << 7);
             set_NZ(mem[get_abs_X()]);
             pc += 3;
             break;
@@ -1386,8 +1411,55 @@ void INC(int mode){
     }
 }
 
-int tester=100;
+int tester=10000;
 /////////////////////////////Execute program
+uint8_t get_processor_status() {
+    return (N << 7) | (V << 6) | (1 << 5) | (B << 4) | (D << 3) | (I << 2) | (Z << 1) | C;
+}
+
+// Print instruction bytes (1-3 bytes depending on instruction length)
+void print_instruction_bytes(uint16_t address) {
+    printf("%04X  %02X ", address, mem[address]);
+    
+    int instr_len = 1;
+    uint8_t opcode = mem[address];
+    
+    if ((opcode & 0x0F) == 0x00 || (opcode & 0x0F) == 0x08 ||
+        (opcode & 0x0F) == 0x0A || (opcode & 0x0F) == 0x0C) {
+        instr_len = (opcode & 0x0F) == 0x00 ? 2 : 
+                    (opcode & 0x0F) == 0x0C ? 3 : 1;
+    } else if ((opcode & 0x1F) == 0x10 || (opcode & 0x1F) == 0x18) {
+        instr_len = 2;  
+    } else if ((opcode & 0x1F) == 0x19 || (opcode & 0x1F) == 0x1D) {
+        instr_len = 3;  
+    } else {
+        switch ((opcode & 0x1C) >> 2) {
+            case 0: instr_len = 2; break;  // Immediate or Zero Page
+            case 1: instr_len = 2; break;  // Zero Page
+            case 2: instr_len = (opcode == 0xA9 || opcode == 0xA2 || opcode == 0xA0 || 
+                opcode == 0x69 || opcode == 0xE9 || opcode == 0xC9 || 
+                opcode == 0xE0 || opcode == 0xC0 || opcode == 0x09 || 
+                opcode == 0x29 || opcode == 0x49) ? 2 : 1;
+                break;   // Accumulator or Implied
+            case 3: instr_len = 3; break;  // Absolute
+            case 4: instr_len = 2; break;  // Indirect,Y or Zero Page,X
+            case 5: instr_len = 2; break;  // Zero Page,X
+            case 6: instr_len = 3; break;  // Absolute,Y
+            case 7: instr_len = 3; break;  // Absolute,X
+        }
+    }
+    
+    // Print the instruction bytes
+    if (instr_len > 1) printf("%02X ", mem[address + 1]);
+    else printf("   ");
+    
+    if (instr_len > 2) printf("%02X ", mem[address + 2]);
+    else printf("   ");
+    
+    printf("");
+}
+
+
 int run(){
     while(true){
         //Do PPU updates from last instruction
@@ -1395,7 +1467,12 @@ int run(){
             PPU_cycle();
         }
 
-        printf("%x %02x\n", pc, (unsigned)(unsigned char)mem[pc]);
+        //printf("%x %02x\n", pc, (unsigned)(unsigned char)mem[pc]);
+        
+        print_instruction_bytes(pc);
+        printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%llu\n", 
+            A, X, Y, get_processor_status(), SP, clock_cycle);
+
         //Get instruction
         unsigned char inst = mem[pc];
         unsigned char inst_a = inst >> 5;
@@ -1406,6 +1483,52 @@ int run(){
         //Set cycle cost to 0
         inst_cycles = 0;
 
+        // handle special nops
+        if (inst == 0x04 || inst == 0x44 || inst == 0x64 || inst == 0x0C ||
+            inst == 0x14 || inst == 0x34 || inst == 0x54 || inst == 0x74 || 
+            inst == 0xD4 || inst == 0xF4 ||
+            inst == 0x1A || inst == 0x3A || inst == 0x5A || inst == 0x7A ||
+            inst == 0xDA || inst == 0xFA || inst == 0x80 ||
+            inst == 0x1C || inst == 0x3C || inst == 0x5C || inst == 0x7C ||
+            inst == 0xDC || inst == 0xFC ||
+            // Add LAX opcodes
+            inst == 0xA3 || inst == 0xA7 || inst == 0xAF || 
+            inst == 0xB3 || inst == 0xB7 || inst == 0xBF) {
+            
+            if (inst == 0x0C) {
+                inst_cycles += 4;  // 4 cycle absolute NOP
+                pc += 3;           
+            } else if (inst == 0x1C || inst == 0x3C || inst == 0x5C || inst == 0x7C ||
+                    inst == 0xDC || inst == 0xFC) {
+                inst_cycles += 4;  // 4 cycle absolute,X NOPs
+                pc += 3;           
+            } else if (inst == 0xAF || inst == 0xBF) {
+                inst_cycles += 4;  // 4 cycle absolute LAX NOPs
+                pc += 3;           
+            } else if (inst == 0x14 || inst == 0x34 || inst == 0x54 || inst == 0x74 || 
+                    inst == 0xD4 || inst == 0xF4) {
+                inst_cycles += 4;  // 4 cycle zero-page,X NOPs
+                pc += 2;           
+            } else if (inst == 0xA7 || inst == 0xB7) {
+                inst_cycles += 3;  // 3-4 cycle zero-page LAX NOPs
+                pc += 2;           
+            } else if (inst == 0x1A || inst == 0x3A || inst == 0x5A || inst == 0x7A ||
+                    inst == 0xDA || inst == 0xFA) {
+                inst_cycles += 2;  // 2 cycle implied NOPs
+                pc += 1;           
+            } else if (inst == 0x80) {
+                inst_cycles += 2;  // 2 cycle immediate NOP
+                pc += 2;           
+            } else if (inst == 0xA3 || inst == 0xB3) {
+                inst_cycles += 6;  // 6 cycle indirect LAX NOPs
+                pc += 2;           
+            } else {
+                inst_cycles += 3;  // 3 cycle zero-page NOPs
+                pc += 2;           
+            }
+            clock_cycle += inst_cycles;
+            continue;
+        }
         //Perform instruction
         switch(inst_c){
             case 0:
@@ -1496,6 +1619,9 @@ int run(){
                 break;
         }
 
+        // Print CPU state after executing instruction
+        
+
         //Update instruction/clock
         clock_cycle += inst_cycles;
 
@@ -1516,7 +1642,10 @@ int run(){
         }
 
         tester-=1;
-        if(tester <= 0) break;
+        if(tester <= 0) {
+            printf(mem[0x6000] == 0x00 ? "Success\n" : "Fail\n"); 
+            break; 
+        }
     }
     return 0;
 }
@@ -1540,8 +1669,10 @@ void loadROM(std::string file_name){
         VRAM[i] = c;
     }
     //Initialize pc
-    pc = read_pair(RES_addr);
+    //pc = read_pair(RES_addr);
+    pc = 0xc000;
 }
+
 
 int main(int argc, char *argv[]) {
 
