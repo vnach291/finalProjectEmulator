@@ -12,8 +12,10 @@ void write_mem(uint16_t addr, char v){
 }
 //TODO setup special addresses as macros
 
-/////////////////////////////VRAM
+/////////////////////////////PPU
 char VRAM[0x2000];
+extern SDL_Window* window;
+extern SDL_Renderer* renderer;
 
 //Interrupt signals
 bool NMI_signal;
@@ -1388,6 +1390,11 @@ int tester=100;
 /////////////////////////////Execute program
 int run(){
     while(true){
+        //Do PPU updates from last instruction
+        for(int i=0; i<inst_cycles*3; i++){
+            PPU_cycle();
+        }
+
         printf("%x %02x\n", pc, (unsigned)(unsigned char)mem[pc]);
         //Get instruction
         unsigned char inst = mem[pc];
@@ -1542,6 +1549,18 @@ int main(int argc, char *argv[]) {
     std::string file_name = argv[1];
     loadROM(file_name);
 
+    //Set up window
+    setup_PPU();
+
     //Execute
-    return run();
+    int exit_type = run();
+
+    //Close window
+    render_frame();
+    SDL_Delay(10000);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+
+    return exit_type;
 }
