@@ -32,7 +32,19 @@ void write_mem(uint16_t addr, uint8_t v){
             //PPUDATA
             write_PPUDATA(v);
             break;
-        //TODO handle other special stuff
+        case 0x2003:
+            //OAMADDR
+            write_OAMADDR(v);
+            break;
+        case 0x2004:
+            //OAMDATA
+            write_OAMDATA(v);
+            break;
+        case 0x4014:
+            //OAMDMA
+            write_OAMDMA(v);
+            inst_cycles += 513;
+            break;
     }
 }
 uint8_t read_mem(uint16_t addr){
@@ -43,11 +55,14 @@ uint8_t read_mem(uint16_t addr){
             mem[addr] &= 0b01111111;
             w = false;
             break;
-        case 0x2006:
-            //PPUADDR
-            return read_PPUADDR();
+        case 0x2007:
+            //PPUDATA
+            return read_PPUDATA();
             break;
-        //TODO handle other special stuff
+        case 0x2004:
+            //OAMDATA
+            return read_OAMDATA();
+            break;
     }
     return res;
 }

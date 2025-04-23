@@ -1,10 +1,14 @@
 #include "ppu.h"
 
 /////////////////////////////CPU
-extern unsigned char VRAM[];
+extern uint8_t VRAM[];
 extern bool NMI_signal;
-extern unsigned char mem[];
+extern uint8_t mem[];
 extern uint64_t clock_cycle;
+
+/////////////////////////////OAM
+uint8_t OAM[0x100];
+uint8_t OAM2[0x20];
 
 /////////////////////////////Internal regs
 bool w = false;
@@ -13,12 +17,11 @@ bool w = false;
 #define PPUCTRL mem[0x2000]
 #define PPUMASK mem[0x2001]
 #define PPUSTATUS mem[0x2002]
-#define OAMADDR mem[0x2003]
-#define OAMDATA mem[0x2004]
 #define PPUSCROLL mem[0x2005]
-#define OAMDMA mem[0x2008]
+#define OAMDMA mem[0x4014]
 
 /////////////////////////////Special Address Handling
+//PPU mapping
 uint16_t ppuaddr;
 void write_PPUADDR(uint8_t data){
     if(!w) {
@@ -28,12 +31,27 @@ void write_PPUADDR(uint8_t data){
     }
     w = !w;
 }
-uint8_t read_PPUADDR(){
+uint8_t read_PPUDATA(){
     return VRAM[ppuaddr];
 }
 void write_PPUDATA(uint8_t data){
     VRAM[ppuaddr] = data;
     ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
+}
+//OAM mapping
+uint16_t oamaddr;
+void write_OAMADDR(uint8_t data){
+    oamaddr = data;
+}
+uint8_t read_OAMDATA(){
+    return OAM[oamaddr];
+}
+void write_OAMDATA(uint8_t data){
+    VRAM[oamaddr] = data;
+    oamaddr += 1;
+}
+void write_OAMDMA(uint8_t data){
+    memcpy(&OAM[oamaddr], &mem[data<<8], 256 * sizeof(uint8_t));
 }
 
 /////////////////////////////Tracking vars
@@ -54,8 +72,11 @@ int scanline = 0;
 /////////////////////////////Handle Rendering
 SDL_Window* window;
 SDL_Texture* texture;
+SDL_Rect destRect = {0, 0, SCREEN_WIDTH*SCREEN_SCALE, SCREEN_HEIGHT*SCREEN_SCALE};
 SDL_Renderer* renderer;
-SDL_Color frame_buffer[SCREEN_WIDTH*SCREEN_HEIGHT];
+uint32_t frame_buffer[SCREEN_WIDTH*SCREEN_HEIGHT];
+void *frame_rendered;
+int pitch = SCREEN_WIDTH*4;
 bool has_setup;
 void setup_PPU(){
     has_setup = true;
@@ -67,7 +88,7 @@ void setup_PPU(){
     }
 
     //Create window
-    window = SDL_CreateWindow("emulate deez",
+    window = SDL_CreateWindow("I'm gonna PPU",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
@@ -86,23 +107,17 @@ void setup_PPU(){
         exit(1);
     }
 
-    //temp
-    /* SDL_Color colors[4];
-    colors[0] = (SDL_Color){0,0,0,0};
-    colors[1] = (SDL_Color){80,80,80,255};
-    colors[2] = (SDL_Color){160,160,160,255};
-    colors[3] = (SDL_Color){255,255,255,255};
-    for(int r=0; r<32; r++){
-        for(int c=0; c<16; c++){
-            for(int i=0; i<8; i++){
-                int addr = r*8*16*2+c*16+i;
-                for(int j=0; j<8; j++){
-                    int ci = (((VRAM[addr+8]>>(7-j))&1)<<1)+((VRAM[addr]>>(7-j))&1);
-                    frame_buffer[(r*8+i)*SCREEN_WIDTH + (c*8+j)] = colors[ci];
-                }
-            }
-        }
-    } */
+    //Create texture
+    texture = SDL_CreateTexture(renderer,
+                SDL_PIXELFORMAT_RGBA8888,
+                SDL_TEXTUREACCESS_STREAMING,
+                SCREEN_WIDTH, SCREEN_HEIGHT);
+    if (!texture) {
+        printf("unable to create texture\n");
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        exit(1);
+    }
 }
 void render_frame(){
     if(!has_setup) return;
@@ -112,6 +127,7 @@ void render_frame(){
     SDL_RenderClear(renderer);
 
     //Render each pixel as a rectangle
+    /*
     for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
         SDL_Color c = frame_buffer[i];
         SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
@@ -122,6 +138,18 @@ void render_frame(){
         SDL_Rect rect = {x, y, SCREEN_SCALE, SCREEN_SCALE};
         SDL_RenderFillRect(renderer, &rect);
     }
+    */
+    if (SDL_LockTexture(texture, NULL, &frame_rendered, &pitch) != 0) {
+        printf("Failed to lock texture: %s\n", SDL_GetError());
+    } else {
+
+        uint32_t* frame_ptr = (uint32_t*)frame_rendered;
+
+        memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+
+        SDL_UnlockTexture(texture);
+    }
+    SDL_RenderCopy(renderer, texture, NULL, &destRect);
 
     //Do render
     SDL_RenderPresent(renderer);
@@ -134,34 +162,16 @@ void render_frame(){
 /////////////////////////////Palette 
 //Source: https://emudev.de/nes-emulator/palettes-attribute-tables-and-sprites/
 //Reformatted with AI
-SDL_Color PALETTE[64] = {
-    {124, 124, 124, 255}, {0, 0, 252, 255}, {0, 0, 188, 255}, {68, 40, 188, 255},
-    {148, 0, 132, 255}, {168, 0, 32, 255}, {168, 16, 0, 255}, {136, 20, 0, 255},
-    {80, 48, 0, 255}, {0, 120, 0, 255}, {0, 104, 0, 255}, {0, 88, 0, 255},
-    {0, 64, 88, 255}, {0, 0, 0, 255}, {0, 0, 0, 255}, {0, 0, 0, 255},
-    
-    {188, 188, 188, 255}, {0, 120, 248, 255}, {0, 88, 248, 255}, {104, 68, 252, 255},
-    {216, 0, 204, 255}, {228, 0, 88, 255}, {248, 56, 0, 255}, {228, 92, 16, 255},
-    {172, 124, 0, 255}, {0, 184, 0, 255}, {0, 168, 0, 255}, {0, 168, 68, 255},
-    {0, 136, 136, 255}, {0, 0, 0, 255}, {0, 0, 0, 255}, {0, 0, 0, 255},
-    
-    {248, 248, 248, 255}, {60, 188, 252, 255}, {104, 136, 252, 255}, {152, 120, 248, 255},
-    {248, 120, 248, 255}, {248, 88, 152, 255}, {248, 120, 88, 255}, {252, 160, 68, 255},
-    {248, 184, 0, 255}, {184, 248, 24, 255}, {88, 216, 84, 255}, {88, 248, 152, 255},
-    {0, 232, 216, 255}, {120, 120, 120, 255}, {0, 0, 0, 255}, {0, 0, 0, 255},
-    
-    {252, 252, 252, 255}, {164, 228, 252, 255}, {184, 184, 248, 255}, {216, 184, 248, 255},
-    {248, 184, 248, 255}, {248, 164, 192, 255}, {240, 208, 176, 255}, {252, 224, 168, 255},
-    {248, 216, 120, 255}, {216, 248, 120, 255}, {184, 248, 184, 255}, {184, 248, 216, 255},
-    {0, 252, 252, 255}, {248, 216, 248, 255}, {0, 0, 0, 255}, {0, 0, 0, 255}
+uint32_t PALETTE[64] = {
+    0x7C7C7CFF, 0x0000FCFF, 0x0000BCFF, 0x4428BCFF, 0x940084FF, 0xA80020FF, 0xA81000FF, 0x881400FF,
+    0x503000FF, 0x007800FF, 0x006800FF, 0x005800FF, 0x004058FF, 0x000000FF, 0x000000FF, 0x000000FF,
+    0xBCBCBCFF, 0x0078F8FF, 0x0058F8FF, 0x6844FCFF, 0xD800CCFF, 0xE40058FF, 0xF83800FF, 0xE45C10FF,
+    0xAC7C00FF, 0x00B800FF, 0x00A800FF, 0x00A844FF, 0x008888FF, 0x000000FF, 0x000000FF, 0x000000FF,
+    0xF8F8F8FF, 0x3CBCFCFF, 0x6888FCFF, 0x9878F8FF, 0xF878F8FF, 0xF85898FF, 0xF87858FF, 0xFCA044FF,
+    0xF8B800FF, 0xB8F818FF, 0x58D854FF, 0x58F898FF, 0x00E8D8FF, 0x787878FF, 0x000000FF, 0x000000FF,
+    0xFCFCFCFF, 0xA4E4FCFF, 0xB8B8F8FF, 0xD8B8F8FF, 0xF8B8F8FF, 0xF8A4C0FF, 0xF0D0B0FF, 0xFCE0A8FF,
+    0xF8D878FF, 0xD8F878FF, 0xB8F8B8FF, 0xB8F8D8FF, 0x00FCFCFF, 0xF8D8F8FF, 0x000000FF, 0x000000FF
 };
-SDL_Color GRAY_PALETTE[4] = {
-    {0, 0, 0, 255}, {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}
-};
-
-/////////////////////////////OAM
-uint8_t OAM[0x100];
-uint8_t OAM2[0x20];
 
 /////////////////////////////Helper methods/macros
 //Reg interpreters
@@ -194,22 +204,56 @@ void PPU_cycle(){
     if(scanline >= 0 && scanline <= 239){
         //Render
         if(cycles >= 1 && cycles <= 256){
-            int x = cycles-1;
+            uint x = cycles-1;
             //Get sprite pixel
-            SDL_Color sprite_color;
-            if(should_render_sprite == 1){
+            uint32_t sprite_color;
+            bool sprite_transparent = true;
+            bool sprite_unpriority;
+            bool is_sprite_0;
+            if(should_render_sprite == 1  && scanline > 0){
+                uint y=scanline-1;
+                //Read from OAM2
                 for(int i=0; i<8; i++){
-                    //TODO read from OAM
-                    //TODO make actual sprite 0 collision set
-                    if(!hit_this_frame){
-                        PPUSTATUS |= 0b01000000; //sprite 0 hit
-                        hit_this_frame = true;;
+                    //Read attribute
+                    uint8_t attribute_data = OAM2[(i<<2) + 2];
+                    int palette_type = attribute_data & 0b11;
+                    sprite_unpriority = (attribute_data>>5) & 1;
+                    bool flipX = (attribute_data>>6) & 1;
+                    bool flipY = (attribute_data>>7) & 1;
+
+                    //Get fine x/fine y
+                    uint8_t sprite_x = OAM2[(i<<2) + 3];
+                    uint8_t sprite_y = OAM2[(i<<2)];
+                    uint fine_x = x-sprite_x;
+                    if(flipX) fine_x = 7-fine_x;
+                    uint fine_y = y-sprite_y;
+                    if(flipY) fine_y = 7-fine_y;
+                    if(fine_x < 0 || fine_x >= 8) continue;
+
+                    //Get tile data
+                    uint8_t tile_addr = OAM2[(i<<2) + 1];
+                    uint8_t tile_data_lo = VRAM[sprite_pattern_address(tile_addr, fine_y)];
+                    uint8_t tile_data_hi = VRAM[sprite_pattern_address(tile_addr, fine_y)|0b1000];
+
+                    //Calc palette index
+                    int palette_index = (((tile_data_hi>>(7-fine_x))&1)<<1) + ((tile_data_lo>>(7-fine_x))&1);
+                    if(palette_index != 0) sprite_transparent = false;
+
+                    //Get color
+                    int color_index = VRAM[color_address(palette_type, palette_index, 1)];
+                    sprite_color = PALETTE[color_index];
+
+                    //Break on success
+                    if(!sprite_transparent){
+                        is_sprite_0 = i==0;
+                        break;
                     }
                 }
             }
+            
             //Get bg pixel
-            SDL_Color bg_color;
-            bool bg_transparent = false;
+            uint32_t bg_color;
+            bool bg_transparent = true;
             if(should_render_bg == 1){
                 //Read nametable (tile address)
                 uint8_t tile_addr = VRAM[nametable_address(x>>3, scanline>>3)];
@@ -218,10 +262,10 @@ void PPU_cycle(){
                 uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, scanline%8)];
                 uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, scanline%8)|0b1000];
                 int palette_index = (((tile_data_hi>>(7-x%8))&1)<<1) + ((tile_data_lo>>(7-x%8))&1);
-                if(palette_index == 0) bg_transparent = true;
+                if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
-                int palette_data = VRAM[attribute_address(x>>5, scanline>>5)];
+                uint8_t palette_data = VRAM[attribute_address(x>>5, scanline>>5)];
                 int palette_section = (((scanline>>4)%2)<<1) + ((x>>4)%2);
                 int palette_type = (palette_data>>(palette_section<<1))&0b11;
 
@@ -229,19 +273,53 @@ void PPU_cycle(){
                 int color_index = VRAM[color_address(palette_type, palette_index, 0)];
                 bg_color = PALETTE[color_index];
             }
+            
             //Draw with logic
-            //TODO logic (precedence, transparency, enable, etc)
-            SDL_Color pixel_color;
-            if(should_render_bg && !bg_transparent){
-                pixel_color = bg_color;
-            } else {
+            uint32_t pixel_color;
+            //Universal color
+            if(sprite_transparent && bg_transparent){
                 pixel_color = PALETTE[color_address(0, 0, 0)];
+            } 
+            //Just BG
+            else if(sprite_transparent && !bg_transparent){
+                pixel_color = bg_color;
+            } 
+            //Just sprite
+            else if(!sprite_transparent && bg_transparent){
+                pixel_color = sprite_color;
             }
+            //Collision
+            else {
+                //Do sprite 0 hit
+                if(is_sprite_0 && !hit_this_frame && x != 255){
+                    PPUSTATUS |= 0b01000000;
+                    hit_this_frame = true;;
+                }
+                pixel_color = sprite_unpriority ? bg_color : sprite_color;
+            }
+            //Set color
             frame_buffer[scanline*SCREEN_WIDTH + x] = pixel_color;
         }
         //Fill OAM2 once
         else if(cycles == 257) {
-            //TODO
+            int cnt = 0;
+            uint y=scanline;
+            //Fine first 8 sprites on the scanline and copy to OAM2
+            for(int i=0; i<64; i++){
+                uint8_t sprite_y = OAM[i<<2];
+                uint fine_y = y-sprite_y;
+                if(fine_y < 0 || fine_y >= 8) continue;
+                memcpy(&OAM2[cnt<<2], &OAM[i<<2], sizeof(uint8_t) * 4);
+                cnt++;
+                if(cnt == 8) break;
+            }
+            //Clear rest
+            for(int i=cnt; i<8; i++){
+                OAM2[(i<<2)] = OAM2[(i<<2)+1] = OAM2[(i<<2)+2] = OAM2[(i<<2)+3] = 0xff;
+            }
+        }
+        if(cycles >= 257 && cycles <= 320){
+            oamaddr = 0;
         }
     }
 
@@ -263,7 +341,8 @@ void PPU_cycle(){
     //Handle reset
     else if(scanline == 261){
         //TODO odd check
-        if(cycles == 340){
+        if((cycles == 339 && is_odd && (should_render_bg || should_render_sprite)) || 
+            cycles == 340){
             scanline = 0;
             hit_this_frame = false;
         }
