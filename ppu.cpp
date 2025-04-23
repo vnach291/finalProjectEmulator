@@ -89,7 +89,7 @@ void setup_PPU(){
     }
 
     //Create window
-    window = SDL_CreateWindow("I'm gonna PPU",
+    window = SDL_CreateWindow("Emutedlater",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
