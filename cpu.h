@@ -5,3 +5,4 @@
 #include <fstream>
 #include <stdio.h>
 #include "ppu.h"
+#include "controller.h"
