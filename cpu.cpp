@@ -19,6 +19,21 @@ extern bool w;
 extern int cycles;
 extern int scanline;
 
+/////////////////////////////Registers/Flags
+uint16_t pc;
+uint8_t A;
+uint8_t X;
+uint8_t Y;
+uint8_t SP = 0xfd;
+uint8_t N;
+uint8_t V;
+uint8_t B;
+uint8_t D;
+uint8_t I = 1;
+uint8_t Z;
+uint8_t C;
+#define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
+
 /////////////////////////////Memory (64KB)
 uint8_t mem[0x10000];
 void write_mem(uint16_t addr, uint8_t v){
@@ -89,22 +104,7 @@ bool special_interrupt;
 #define RES_addr 0xfffc
 #define IRQ_addr 0xfffe
 
-/////////////////////////////Registers/Flags
-uint16_t pc;
-uint8_t A;
-uint8_t X;
-uint8_t Y;
-uint8_t SP = 0xfd;
-uint8_t N;
-uint8_t V;
-uint8_t B;
-uint8_t D;
-uint8_t I = 1;
-uint8_t Z;
-uint8_t C;
-#define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
-
-//Helper functions
+/////////////////////////////Helper functions
 uint16_t read_pair(uint16_t addr) {
     return (read_mem(addr+1)<<8) | read_mem(addr);
 }
@@ -1165,44 +1165,50 @@ void ASL(int mode){
     }
 }
 void ROL(int mode){
+    uint8_t new_C;
     switch(mode){
         case 1:
             //ROL zpg
             inst_cycles += 5;
-            C = (read_mem(get_zpg()) >> 7) & 1;
+            new_C = (read_mem(get_zpg()) >> 7) & 1;
             write_mem(get_zpg(), (read_mem(get_zpg()) << 1) + C);
+            C = new_C;
             set_NZ(read_mem(get_zpg()));
             pc += 2;
             break;
         case 2:
             //ROL A
             inst_cycles += 2;
-            C = (A >> 7) & 1;
+            new_C = (A >> 7) & 1;
             A = (A << 1) + C;
+            C = new_C;
             set_NZ(A);
             pc += 1;
             break;
         case 3:
             //ROL abs
             inst_cycles += 6;
-            C = (read_mem(get_abs()) >> 7) & 1;
+            new_C = (read_mem(get_abs()) >> 7) & 1;
             write_mem(get_abs(), (read_mem(get_abs()) << 1) + C);
+            C = new_C;
             set_NZ(read_mem(get_abs()));
             pc += 3;
             break;
         case 5:
             //ROL zpg,X
             inst_cycles += 6;
-            C = (read_mem(get_zpg_X()) >> 7) & 1;
+            new_C = (read_mem(get_zpg_X()) >> 7) & 1;
             write_mem(get_zpg_X(), (read_mem(get_zpg_X()) << 1) + C);
+            C = new_C;
             set_NZ(read_mem(get_zpg_X()));
             pc += 2;
             break;
         case 7:
             //ROL abs,X
             inst_cycles += 7;
-            C = (read_mem(get_abs_X()) >> 7) & 1;
+            new_C = (read_mem(get_abs_X()) >> 7) & 1;
             write_mem(get_abs_X(), (read_mem(get_abs_X()) << 1) + C);
+            C = new_C;
             set_NZ(read_mem(get_abs_X()));
             pc += 3;
             break;
@@ -1530,10 +1536,10 @@ int run(){
             }
         }
 
-        if(TEST_PRINT) {
+        if(TEST_PRINT && pc >= 0xf50e && pc <= 0xf55a) {
             print_instruction_bytes(pc);
-            printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu PPU:(%d,%d)\n", 
-                A, X, Y, get_processor_status(), SP, clock_cycle, scanline, cycles);
+            printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu PPU:(%d,%d) %02X\n", 
+                A, X, Y, get_processor_status(), SP, clock_cycle, scanline, cycles, mem[0]);
         }
 
         //Poll controllers
@@ -1736,20 +1742,30 @@ int run(){
 void loadROM(std::string file_name){
     std::ifstream file(file_name);
     char c;
+    uint8_t prog_size;
     //Header (skipped)
     for(int i=0; i<0x10; i++){
         file.get(c);
+        if(i==4) prog_size = c;
     }
     //Program ROM
-    for(int i=0; i<0x4000; i++){
-        file.get(c);
-        mem[0xc000+i] = c;
+    if(prog_size == 1){
+        for(int i=0; i<0x4000; i++){
+            file.get(c);
+            mem[0xc000+i] = c;
+        }
+    } else {
+        for(int i=0; i<0x8000; i++){
+            file.get(c);
+            mem[0x8000+i] = c;
+        }
     }
     //Character ROM
     for(int i=0; i<0x2000; i++){
         file.get(c);
         VRAM[i] = c;
     }
+    if(prog_size == 1) memcpy(&mem[0x7fff], &mem[0xbfff], sizeof(uint8_t) * 0x4000);
     //Initialize pc
     pc = read_pair(RES_addr);
     //pc = 0xc000;
