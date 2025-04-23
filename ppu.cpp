@@ -112,6 +112,7 @@ void setup_PPU(){
                 SDL_PIXELFORMAT_RGBA8888,
                 SDL_TEXTUREACCESS_STREAMING,
                 SCREEN_WIDTH, SCREEN_HEIGHT);
+
     if (!texture) {
         printf("unable to create texture\n");
         SDL_DestroyWindow(window);
@@ -194,8 +195,19 @@ uint32_t PALETTE[64] = {
 #define NMI_enabled (PPUCTRL>>7)
 #define should_render_sprite ((PPUMASK>>4)&1)
 #define should_render_bg ((PPUMASK>>3)&1)
+#define sprite_size ((PPUCTRL>>5)&1 ? 16 : 8)
+#define sprite_switch ((PPUCTRL>>5)&1)
+#define show_left_bg ((PPUMASK>>1)&1)
+#define show_left_sprite ((PPUMASK>>2)&1)
 //Address finders
-#define sprite_pattern_address(i, fine_y) ((sprite_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
+//#define sprite_pattern_address(i, fine_y) ((sprite_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
+#define sprite_pattern_address(tile_index, fine_y) \
+    sprite_switch ? /* 8x16 mode */ \
+        ((((tile_index&1)<<12) | ((tile_index&0xFE)<<4) | \
+        ((fine_y<8) ? fine_y : (fine_y-8)) | \
+        ((fine_y>=8) ? 0x10 : 0)) & 0xFFFF) : \ 
+        ((sprite_pattern_table_index<<12) | (tile_index<<4) | ((fine_y)&0b111)) // normal 8x8 mode
+
 #define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
 #define nametable_address(x, y) ((0x2000 | (nametable_index<<10)) + (((y)<<5) | (x)))
 #define attribute_address(x, y) ((0x2000 | (nametable_index<<10)) + (0x3c0) + (((y)<<3) | (x)))
@@ -223,7 +235,8 @@ void PPU_cycle(){
             bool sprite_transparent = true;
             bool sprite_unpriority;
             bool is_sprite_0;
-            if(should_render_sprite == 1  && scanline > 0){
+
+            if(should_render_sprite == 1 && scanline > 0 && (x >= 8 || show_left_sprite)){
                 uint y=scanline-1;
                 //Read from OAM2
                 for(int i=0; i<8; i++){
@@ -239,9 +252,12 @@ void PPU_cycle(){
                     uint8_t sprite_y = OAM2[(i<<2)];
                     uint fine_x = x-sprite_x;
                     if(flipX) fine_x = 7-fine_x;
+                    
                     uint fine_y = y-sprite_y;
-                    if(flipY) fine_y = 7-fine_y;
+                    int height = sprite_size;
+                    if(flipY) fine_y = height - 1 - fine_y;
                     if(fine_x < 0 || fine_x >= 8) continue;
+                    if(fine_y < 0 || fine_y >= height) continue;
 
                     //Get tile data
                     uint8_t tile_addr = OAM2[(i<<2) + 1];
@@ -267,7 +283,7 @@ void PPU_cycle(){
             //Get bg pixel
             uint32_t bg_color;
             bool bg_transparent = true;
-            if(should_render_bg == 1){
+            if(should_render_bg == 1 && (x >= 8 || show_left_bg)){
                 //Read nametable (tile address)
                 uint8_t tile_addr = VRAM[nametable_address(x>>3, scanline>>3)];
 
@@ -317,11 +333,12 @@ void PPU_cycle(){
         else if(cycles == 257) {
             int cnt = 0;
             uint y=scanline;
+            int height = sprite_size; 
             //Fine first 8 sprites on the scanline and copy to OAM2
             for(int i=0; i<64; i++){
                 uint8_t sprite_y = OAM[i<<2];
                 uint fine_y = y-sprite_y;
-                if(fine_y < 0 || fine_y >= 8) continue;
+                if(fine_y < 0 || fine_y >= height) continue;
                 memcpy(&OAM2[cnt<<2], &OAM[i<<2], sizeof(uint8_t) * 4);
                 cnt++;
                 if(cnt == 8) break;
