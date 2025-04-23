@@ -47,7 +47,7 @@ uint8_t read_OAMDATA(){
     return OAM[oamaddr];
 }
 void write_OAMDATA(uint8_t data){
-    VRAM[oamaddr] = data;
+    OAM[oamaddr] = data;
     oamaddr += 1;
 }
 void write_OAMDMA(uint8_t data){
@@ -75,6 +75,7 @@ SDL_Texture* texture;
 SDL_Rect destRect = {0, 0, SCREEN_WIDTH*SCREEN_SCALE, SCREEN_HEIGHT*SCREEN_SCALE};
 SDL_Renderer* renderer;
 uint32_t frame_buffer[SCREEN_WIDTH*SCREEN_HEIGHT];
+uint32_t frame_buffert[SCREEN_WIDTH*SCREEN_HEIGHT];
 void *frame_rendered;
 int pitch = SCREEN_WIDTH*4;
 bool has_setup;
@@ -120,30 +121,24 @@ void setup_PPU(){
         exit(1);
     }
 
-    /* for(int i=0; i<256; i++){
+    for(int i=0; i<256; i++){
         for(int j=0; j<128; j++){
             //Read nametable (tile address)
             int table = i >= 128 ? 0x1000: 0x0000;
-            uint8_t tile_addr = VRAM[table | (i<<4) | ((fine_y)&0b111)];
+            int ii = i >= 128 ? i-128: i;
+            uint8_t tile_addr = (ii>>3) + ((j>>3)<<4);
 
             //Read pattern (using tile address)
-            uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, scanline%8)];
-            uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, scanline%8)|0b1000];
-            int palette_index = (((tile_data_hi>>(7-x%8))&1)<<1) + ((tile_data_lo>>(7-x%8))&1);
-            if(palette_index != 0) bg_transparent = false;
+            uint8_t tile_data_lo = VRAM[table | (tile_addr<<4) | ((j%8)&0b111)];
+            uint8_t tile_data_hi = VRAM[table | (tile_addr<<4) | ((j%8)&0b111)|0b1000];
+            int palette_index = (((tile_data_hi>>(7-ii%8))&1)<<1) + ((tile_data_lo>>(7-ii%8))&1);
 
             //Read attribute + index within
-            uint8_t palette_data = VRAM[attribute_address(x>>5, scanline>>5)];
-            int palette_section = (((scanline>>4)%2)<<1) + ((x>>4)%2);
-            int palette_type = (palette_data>>(palette_section<<1))&0b11;
+            uint32_t GRAYS[4] = {0x000000ff,0x404040ff,0x808080ff,0xc0c0c0ff};
 
-            //Get color
-            int color_index = VRAM[color_address(palette_type, palette_index, 0)];
-            bg_color = PALETTE[color_index];
-            PALETTE[]
-            frame_buffer[i*256 + j] = ;
+            frame_buffert[j*256 + i] = GRAYS[palette_index];
         }
-    } */
+    }
 }
 void render_frame(){
     if(!has_setup) return;
@@ -205,7 +200,7 @@ uint32_t PALETTE[64] = {
     sprite_switch ? /* 8x16 mode */ \
         ((((tile_index&1)<<12) | ((tile_index&0xFE)<<4) | \
         ((fine_y<8) ? fine_y : (fine_y-8)) | \
-        ((fine_y>=8) ? 0x10 : 0)) & 0xFFFF) : \ 
+        ((fine_y>=8) ? 0x10 : 0)) & 0xFFFF) : \
         ((sprite_pattern_table_index<<12) | (tile_index<<4) | ((fine_y)&0b111)) // normal 8x8 mode
 
 #define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
@@ -244,8 +239,8 @@ void PPU_cycle(){
                     uint8_t attribute_data = OAM2[(i<<2) + 2];
                     int palette_type = attribute_data & 0b11;
                     sprite_unpriority = (attribute_data>>5) & 1;
-                    bool flipX = (attribute_data>>6) & 1;
-                    bool flipY = (attribute_data>>7) & 1;
+                    bool flipX = ((attribute_data>>6) & 1) == 1;
+                    bool flipY = ((attribute_data>>7) & 1) == 1;
 
                     //Get fine x/fine y
                     uint8_t sprite_x = OAM2[(i<<2) + 3];
@@ -254,7 +249,7 @@ void PPU_cycle(){
                     if(flipX) fine_x = 7-fine_x;
                     
                     uint fine_y = y-sprite_y;
-                    int height = sprite_size;
+                    uint height = sprite_size;
                     if(flipY) fine_y = height - 1 - fine_y;
                     if(fine_x < 0 || fine_x >= 8) continue;
                     if(fine_y < 0 || fine_y >= height) continue;
@@ -307,7 +302,7 @@ void PPU_cycle(){
             uint32_t pixel_color;
             //Universal color
             if(sprite_transparent && bg_transparent){
-                pixel_color = PALETTE[color_address(0, 0, 0)];
+                pixel_color = PALETTE[VRAM[color_address(0, 0, 0)]];
             } 
             //Just BG
             else if(sprite_transparent && !bg_transparent){
@@ -333,8 +328,8 @@ void PPU_cycle(){
         else if(cycles == 257) {
             int cnt = 0;
             uint y=scanline;
-            int height = sprite_size; 
-            //Fine first 8 sprites on the scanline and copy to OAM2
+            uint height = sprite_size; 
+            //Find first 8 sprites on the scanline and copy to OAM2
             for(int i=0; i<64; i++){
                 uint8_t sprite_y = OAM[i<<2];
                 uint fine_y = y-sprite_y;
@@ -363,10 +358,12 @@ void PPU_cycle(){
     }
 
     //Handle VBlank ends
-    else if(scanline == 261 && cycles == 1){
+    /* else if(scanline == 261 && cycles == 1){
         //TODO disable based on PPUCTRL
         PPUSTATUS &= 0b01111111; //disable VBlank
-    }
+        scanline = 0;
+        hit_this_frame = false;
+    } */
 
     //Handle reset
     else if(scanline == 261){
