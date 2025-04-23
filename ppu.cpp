@@ -119,6 +119,31 @@ void setup_PPU(){
         SDL_Quit();
         exit(1);
     }
+
+    /* for(int i=0; i<256; i++){
+        for(int j=0; j<128; j++){
+            //Read nametable (tile address)
+            int table = i >= 128 ? 0x1000: 0x0000;
+            uint8_t tile_addr = VRAM[table | (i<<4) | ((fine_y)&0b111)];
+
+            //Read pattern (using tile address)
+            uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, scanline%8)];
+            uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, scanline%8)|0b1000];
+            int palette_index = (((tile_data_hi>>(7-x%8))&1)<<1) + ((tile_data_lo>>(7-x%8))&1);
+            if(palette_index != 0) bg_transparent = false;
+
+            //Read attribute + index within
+            uint8_t palette_data = VRAM[attribute_address(x>>5, scanline>>5)];
+            int palette_section = (((scanline>>4)%2)<<1) + ((x>>4)%2);
+            int palette_type = (palette_data>>(palette_section<<1))&0b11;
+
+            //Get color
+            int color_index = VRAM[color_address(palette_type, palette_index, 0)];
+            bg_color = PALETTE[color_index];
+            PALETTE[]
+            frame_buffer[i*256 + j] = ;
+        }
+    } */
 }
 void render_frame(){
     if(!has_setup) return;
@@ -128,18 +153,6 @@ void render_frame(){
     SDL_RenderClear(renderer);
 
     //Render each pixel as a rectangle
-    /*
-    for (int i = 0; i < SCREEN_WIDTH * SCREEN_HEIGHT; i++) {
-        SDL_Color c = frame_buffer[i];
-        SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
-    
-        int x = (i % SCREEN_WIDTH) * SCREEN_SCALE;
-        int y = (i / SCREEN_WIDTH) * SCREEN_SCALE;
-    
-        SDL_Rect rect = {x, y, SCREEN_SCALE, SCREEN_SCALE};
-        SDL_RenderFillRect(renderer, &rect);
-    }
-    */
     if (SDL_LockTexture(texture, NULL, &frame_rendered, &pitch) != 0) {
         printf("Failed to lock texture: %s\n", SDL_GetError());
     } else {

@@ -45,6 +45,10 @@ void write_mem(uint16_t addr, uint8_t v){
             write_OAMDMA(v);
             inst_cycles += 513;
             break;
+        case 0x4016:
+            //Controller Polling
+            enable_polling(v);
+            break;
     }
 }
 uint8_t read_mem(uint16_t addr){
@@ -62,6 +66,15 @@ uint8_t read_mem(uint16_t addr){
         case 0x2004:
             //OAMDATA
             return read_OAMDATA();
+            break;
+        case 0x4016:
+            //Controller 1 Reading
+            res = read_controller1();
+            return res;
+            break;
+        case 0x4017:
+            //Controller 2 Reading
+            return read_controller2();
             break;
     }
     return res;
@@ -142,11 +155,11 @@ void do_sbc(uint8_t value) {
 /////////////////////////////Addressing 
 uint16_t get_imm(){
     //immediate
-    return mem[pc+1];
+    return read_mem(pc+1);
 }
 uint16_t get_rel(){
     //relative
-    uint16_t res = pc + ((int8_t) mem[pc + 1]) + 2;
+    uint16_t res = pc + ((int8_t) read_mem(pc + 1)) + 2;
     if((res >> 8) != ((pc+2) >> 8)) {
         inst_cycles++;
     } else {
@@ -156,41 +169,41 @@ uint16_t get_rel(){
 }
 uint16_t get_zpg(){
     //zero page
-    return mem[pc+1];
+    return read_mem(pc+1);
 }
 uint16_t get_zpg_X(){
     //zero page X index
-    return (mem[pc+1] + X) & 0xFF;
+    return (read_mem(pc+1) + X) & 0xFF;
 }
 uint16_t get_zpg_Y(){
     //zero page Y index
-    return (mem[pc+1] + Y) & 0xFF;
+    return (read_mem(pc+1) + Y) & 0xFF;
 }
 uint16_t get_X_ind(){
     //indirect X pre-index
-    return (mem[(mem[pc+1] + X + 1) & 0xFF]<<8) | mem[(mem[pc+1] + X) & 0xFF];
+    return (read_mem((read_mem(pc+1) + X + 1) & 0xFF)<<8) | read_mem((read_mem(pc+1) + X) & 0xFF);
 }
 uint16_t get_ind_Y(){
     //indirect Y post-index
-    uint16_t res1 = (mem[(mem[pc+1] + 1) & 0xFF]<<8) | mem[mem[pc+1]];
+    uint16_t res1 = (read_mem((read_mem(pc+1) + 1) & 0xFF)<<8) | read_mem(read_mem(pc+1));
     uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
 uint16_t get_abs(){
     //absolute
-    return (mem[pc+2]<<8) | mem[pc+1];
+    return (read_mem(pc+2)<<8) | read_mem(pc+1);
 }
 uint16_t get_abs_X(){
     //absolute X index
-    uint16_t res1 = (mem[pc+2]<<8) | mem[pc+1];
+    uint16_t res1 = (read_mem(pc+2)<<8) | read_mem(pc+1);
     uint16_t res2 = res1 + X;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
 }
 uint16_t get_abs_Y(){
     //absolute Y index
-    uint16_t res1 = (mem[pc+2]<<8) | mem[pc+1];
+    uint16_t res1 = (read_mem(pc+2)<<8) | read_mem(pc+1);
     uint16_t res2 = res1 + Y;
     if(res1>>8 != res2>>8) inst_cycles++;
     return res2;
@@ -1522,6 +1535,9 @@ int run(){
             printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu PPU:(%d,%d)\n", 
                 A, X, Y, get_processor_status(), SP, clock_cycle, scanline, cycles);
         }
+
+        //Poll controllers
+        poll();
 
         //Get instruction
         unsigned char inst = read_mem(pc);
