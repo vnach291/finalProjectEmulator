@@ -55,6 +55,7 @@ void write_OAMDMA(uint8_t data){
 }
 
 /////////////////////////////Tracking vars
+bool DEBUG_SCREEN = true;
 const int FPS = 60;
 const int SCREEN_WIDTH = 256;
 const int SCREEN_HEIGHT = 240;
@@ -164,7 +165,7 @@ void render_frame(){
     SDL_RenderPresent(renderer);
 
     //Delay for FPS
-    SDL_Delay(1000/FPS);
+    if(!DEBUG_SCREEN) SDL_Delay(1000/FPS);
 }
 
 
@@ -355,6 +356,7 @@ void PPU_cycle(){
         }
         PPUSTATUS |= 0b10000000; //enable VBlank
         render_frame();
+        if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
     }
 
     //Handle VBlank ends

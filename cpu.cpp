@@ -18,6 +18,7 @@ extern uint8_t OAM2[];
 extern bool w;
 extern int cycles;
 extern int scanline;
+extern bool DEBUG_SCREEN;
 
 /////////////////////////////Registers/Flags
 uint16_t pc;
@@ -1700,6 +1701,10 @@ int run(){
         //Do PPU updates
         for(int i=0; i<inst_cycles*3; i++){
             PPU_cycle();
+        }
+        if(DEBUG_SCREEN) {
+            uint8_t* keys = (uint8_t*)SDL_GetKeyboardState(NULL);
+            if(keys[SDL_SCANCODE_SPACE]) render_frame();
         }
 
         //Do interrupts

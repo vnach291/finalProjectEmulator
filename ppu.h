@@ -3,6 +3,7 @@
 #include <chrono>
 #include <SDL2/SDL.h>
 #include <iostream>
+#include <algorithm>
 #include "cpu.h"
 
 void PPU_cycle();
