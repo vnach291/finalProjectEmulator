@@ -103,7 +103,7 @@ void setup_PPU(){
     }
 
     //Create window
-    window = SDL_CreateWindow("Emutedlater",
+    window = SDL_CreateWindow("emuLATER",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
@@ -243,8 +243,8 @@ uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
         if(x >= 32) {
             x%=32;
         }
-        if(y >= 32) {
-            y%=32;
+        if(y >= 30) {
+            y%=30;
             if(nametable_index&0b10) {
                 base -= 0x800;
             } else {
@@ -261,8 +261,8 @@ uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
                 base += 0x400;
             }
         }
-        if(y >= 32) {
-            y%=32;
+        if(y >= 30) {
+            y%=30;
         }
     }
     return base | (y<<5) | x;
