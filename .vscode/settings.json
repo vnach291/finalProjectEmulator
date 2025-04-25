@@ -1,3 +1,15 @@
 {
-    "C_Cpp.default.compilerPath": "/usr/bin/g++"
+    "C_Cpp.default.compilerPath": "/usr/bin/g++",
+    "files.associations": {
+        "array": "cpp",
+        "charconv": "cpp",
+        "compare": "cpp",
+        "functional": "cpp",
+        "ratio": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "variant": "cpp",
+        "numbers": "cpp"
+    }
 }

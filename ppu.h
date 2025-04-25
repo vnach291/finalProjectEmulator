@@ -16,3 +16,5 @@ void write_OAMADDR(uint8_t data);
 uint8_t read_OAMDATA();
 void write_OAMDATA(uint8_t data);
 void write_OAMDMA(uint8_t data);
+void write_PPUSCROLL(uint8_t data);
+uint16_t VRAM_addr(uint16_t addr);
