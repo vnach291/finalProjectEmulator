@@ -44,7 +44,6 @@ uint8_t read_PPUDATA(){
     return res;
 }
 void write_PPUDATA(uint8_t data){
-    //if(VRAM_addr(ppuaddr) == (0x3f00 | ((0)<<4) | ((0)<<2) | (0))) printf("%02X\n", data);
     VRAM[VRAM_addr(ppuaddr)] = data;
     ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
 }
@@ -65,13 +64,15 @@ void write_OAMDMA(uint8_t data){
     memcpy(&OAM[oamaddr], &mem[data<<8], 256 * sizeof(uint8_t));
 }
 //Scroll handling
+uint16_t hold_x_scroll;
+uint16_t hold_y_scroll;
 uint16_t x_scroll;
 uint16_t y_scroll;
 void write_PPUSCROLL(uint8_t data){
     if(!w) {
-        x_scroll = data;
+        hold_x_scroll = data;
     } else {
-        y_scroll = data;
+        hold_y_scroll = data;
     }
     w = !w;
 }
@@ -213,7 +214,7 @@ uint32_t GRAYS[4] = {
 //Reg interpreters
 #define sprite_pattern_table_index ((PPUCTRL>>3)&1)
 #define bg_pattern_table_index ((PPUCTRL>>4)&1)
-#define nametable_index (PPUCTRL&0b11)
+int nametable_index = 0;
 #define NMI_enabled (PPUCTRL>>7)
 #define should_render_sprite ((PPUMASK>>4)&1)
 #define should_render_bg ((PPUMASK>>3)&1)
@@ -270,7 +271,7 @@ uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
         //vertical
         if(x >= 32) {
             x%=32;
-            if(nametable_index&0b01) {
+            if(nametable_index&0b11) {
                 base -= 0x400;
             } else {
                 base += 0x400;
@@ -439,16 +440,32 @@ void PPU_cycle(){
             else {
                 //Do sprite 0 hit
                 if(is_sprite_0 && !hit_this_frame && x != 255){
+                    //printf("%d %d %d %d\n", x, y, effective_x, effective_y);
                     PPUSTATUS |= 0b01000000;
                     hit_this_frame = true;
                 }
                 pixel_color = sprite_unpriority ? bg_color : sprite_color;
             }
+            /* if(y == 30 && x == 90){
+                uint8_t tile_addr = VRAM[0x2000 + (3<<5) + 11];
+                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
+                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
+                int palette_index1 = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
+                tile_addr = VRAM[0x2400 + (3<<5) + 11];
+                tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
+                tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
+                int palette_index2 = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
+                //printf("%d %d %d %d %d\n", nametable_index, effective_x>>3,effective_y>>3,palette_index1, palette_index2);
+            } */
             //Set color
             frame_buffer[scanline*SCREEN_WIDTH + x] = pixel_color;// / (((x>>5)%2 != (y>>5)%2)?2:1) / (((x>>4)%2 != (y>>4)%2)?3:1);
         }
         //Fill OAM2 once
         else if(cycles == 257) {
+            /* if(!hit_this_frame && scanline == 239) {
+                //PPUSTATUS |= 0b01000000;
+                //hit_this_frame = true;
+            } */
             int cnt = 0;
             uint y=scanline;
             uint height = sprite_size; 
@@ -471,6 +488,9 @@ void PPU_cycle(){
         if(cycles >= 257 && cycles <= 320){
             oamaddr = 0;
         }
+        if(cycles == 320){
+            x_scroll = hold_x_scroll;
+        }
     }
 
     //Handle VBlank start
@@ -478,6 +498,7 @@ void PPU_cycle(){
         if(NMI_enabled){
             NMI_signal = true;
         }
+        y_scroll = hold_y_scroll;
         PPUSTATUS |= 0b10000000; //enable VBlank
         render_frame();
         if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
@@ -486,6 +507,7 @@ void PPU_cycle(){
     //Handle reset
     else if(scanline == 261){
         if(cycles == 0) {
+            nametable_index = PPUCTRL&0b11;
             PPUSTATUS &= 0b00011111;
         }
         is_odd = !is_odd;

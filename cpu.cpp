@@ -56,6 +56,7 @@ uint16_t mirrored_addr(uint16_t addr){
 }
 void write_mem(uint16_t addr, uint8_t v){
     addr = mirrored_addr(addr);
+    //if(addr == 0x2000) printf("%04X %d %d %d\n", pc, scanline, cycles, v&0b11);
     if(addr >= 0x8000) return;
     switch(addr){
         case 0x2002:
