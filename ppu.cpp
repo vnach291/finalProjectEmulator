@@ -30,8 +30,18 @@ void write_PPUADDR(uint8_t data){
     }
     w = !w;
 }
+uint8_t read_PPUDATA_buffer = 0;
 uint8_t read_PPUDATA(){
-    return VRAM[VRAM_addr(ppuaddr)];
+    if(ppuaddr >= 0x3F00){
+        read_PPUDATA_buffer = VRAM[ppuaddr];
+        uint8_t res = VRAM[VRAM_addr(ppuaddr)];
+        ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
+        return res;
+    }
+    uint8_t res = read_PPUDATA_buffer;
+    read_PPUDATA_buffer = VRAM[VRAM_addr(ppuaddr)];
+    ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
+    return res;
 }
 void write_PPUDATA(uint8_t data){
     //if(VRAM_addr(ppuaddr) == (0x3f00 | ((0)<<4) | ((0)<<2) | (0))) printf("%02X\n", data);
@@ -44,7 +54,8 @@ void write_OAMADDR(uint8_t data){
     oamaddr = data;
 }
 uint8_t read_OAMDATA(){
-    return OAM[oamaddr];
+    uint8_t res = OAM[oamaddr];
+    return res;
 }
 void write_OAMDATA(uint8_t data){
     OAM[oamaddr] = data;
@@ -234,6 +245,10 @@ uint16_t VRAM_addr(uint16_t addr){
         //vertical
         if(addr >= 0x2800 && addr < 0x3000) new_addr = addr-0x800;
     }
+    if(addr >= 0x3F20) {
+        new_addr = 0x3F00 | (addr%0x20);
+    }
+    if(new_addr == 0x3F10) new_addr = 0x3F00;
     return new_addr;
 }
 uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
@@ -268,6 +283,9 @@ uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
     return base | (y<<5) | x;
 }
 uint16_t scrolled_at_addr(uint8_t x, uint8_t y){
+    bool post_y = y%2 == 1;
+    x>>=1;
+    y>>=1;
     uint16_t base = (0x2000 | (nametable_index<<10));
     if(mirroring_layout == 0){
         //horizontal
@@ -296,7 +314,12 @@ uint16_t scrolled_at_addr(uint8_t x, uint8_t y){
             y%=8;
         }
     }
-    return base + 0x3c0 + ((y<<3) | x);
+    bool special_wrap = false;
+    /* if(y==7 && post_y) {
+        y = 0;
+        special_wrap = true;
+    } */
+    return base + 0x3c0 + ((y<<3) | x) + (special_wrap?post_y<<2:0);
 }
 
 /////////////////////////////Run PPU
@@ -325,7 +348,7 @@ void PPU_cycle(){
             bool sprite_unpriority;
             bool is_sprite_0;
 
-            if(should_render_sprite == 1 && scanline > 0 && (x >= 8 || show_left_sprite)){
+            if(should_render_sprite == 1 && scanline > 0 && (x >= 8 || show_left_sprite==1)){
                 y--;
                 //Read from OAM2
                 for(int i=0; i<8; i++){
@@ -346,7 +369,7 @@ void PPU_cycle(){
                     uint fine_y = y-sprite_y;
                     uint height = sprite_size;
                     if(flipY) fine_y = height - 1 - fine_y;
-
+                    
                     if(fine_x < 0 || fine_x >= 8) continue;
                     if(fine_y < 0 || fine_y >= height) continue;
 
@@ -376,7 +399,7 @@ void PPU_cycle(){
             //Get bg pixel
             uint32_t bg_color;
             bool bg_transparent = true;
-            if(should_render_bg == 1 && (x >= 8 || show_left_bg)){
+            if(should_render_bg == 1 && (x >= 8 || show_left_bg==1)){
                 //Read nametable (tile address)
                 uint8_t tile_addr = VRAM[VRAM_addr(scrolled_nt_addr(effective_x>>3, effective_y>>3))];
 
@@ -387,7 +410,7 @@ void PPU_cycle(){
                 if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
-                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>5, effective_y>>5))];
+                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>4, effective_y>>4))];
                 int palette_section = (((effective_y>>4)%2)<<1) + ((effective_x>>4)%2);
                 int palette_type = (palette_data>>(palette_section<<1))&0b11;
 
@@ -417,7 +440,7 @@ void PPU_cycle(){
                 //Do sprite 0 hit
                 if(is_sprite_0 && !hit_this_frame && x != 255){
                     PPUSTATUS |= 0b01000000;
-                    hit_this_frame = true;;
+                    hit_this_frame = true;
                 }
                 pixel_color = sprite_unpriority ? bg_color : sprite_color;
             }
@@ -426,7 +449,6 @@ void PPU_cycle(){
         }
         //Fill OAM2 once
         else if(cycles == 257) {
-            PPUSTATUS |= 0b01000000;
             int cnt = 0;
             uint y=scanline;
             uint height = sprite_size; 
@@ -461,17 +483,11 @@ void PPU_cycle(){
         if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
     }
 
-    //Handle VBlank ends
-    /* else if(scanline == 261 && cycles == 1){
-        //TODO disable based on PPUCTRL
-        PPUSTATUS &= 0b01111111; //disable VBlank
-        scanline = 0;
-        hit_this_frame = false;
-    } */
-
     //Handle reset
     else if(scanline == 261){
-        if(cycles == 0) PPUSTATUS &= 0b10111111;
+        if(cycles == 0) {
+            PPUSTATUS &= 0b00011111;
+        }
         is_odd = !is_odd;
         if((cycles == 339 && is_odd && (should_render_bg || should_render_sprite)) || 
             cycles == 340){
