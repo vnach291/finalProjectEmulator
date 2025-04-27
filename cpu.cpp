@@ -18,6 +18,8 @@ extern uint8_t OAM2[];
 extern bool w;
 extern int cycles;
 extern int scanline;
+extern bool DEBUG_SCREEN;
+extern int mirroring_layout;
 
 /////////////////////////////Registers/Flags
 uint16_t pc;
@@ -45,6 +47,13 @@ void write_mem(uint16_t addr, uint8_t v){
             break;
         case 0x2007:
             //PPUDATA
+            /*if(v == 0x0F) {
+                printf("%04X %02X", pc, Y);
+                for(int i=0; i<20; i++){
+                    printf("%02X ", mem[mem[0]+(mem[1]<<8)+i]);
+                }
+                printf("\n");
+            }*/
             write_PPUDATA(v);
             break;
         case 0x2003:
@@ -58,11 +67,15 @@ void write_mem(uint16_t addr, uint8_t v){
         case 0x4014:
             //OAMDMA
             write_OAMDMA(v);
-            inst_cycles += 513;
+            //inst_cycles += 513;
             break;
         case 0x4016:
             //Controller Polling
             enable_polling(v);
+            break;
+        case 0x2005:
+            //PPUSCROLL
+            write_PPUSCROLL(v);
             break;
     }
 }
@@ -1536,10 +1549,10 @@ int run(){
             }
         }
 
-        if(TEST_PRINT && pc >= 0xf50e && pc <= 0xf55a) {
+        if(TEST_PRINT) {
             print_instruction_bytes(pc);
             printf("A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu PPU:(%d,%d) %02X\n", 
-                A, X, Y, get_processor_status(), SP, clock_cycle, scanline, cycles, mem[0]);
+                A, X, Y, get_processor_status(), SP, clock_cycle, scanline, cycles, mem[0x2002]);
         }
 
         //Poll controllers
@@ -1701,6 +1714,10 @@ int run(){
         for(int i=0; i<inst_cycles*3; i++){
             PPU_cycle();
         }
+        if(DEBUG_SCREEN) {
+            uint8_t* keys = (uint8_t*)SDL_GetKeyboardState(NULL);
+            if(keys[SDL_SCANCODE_SPACE]) render_frame();
+        }
 
         //Do interrupts
         if(NMI_signal | RES_signal | (IRQ_signal && !I)){
@@ -1747,6 +1764,7 @@ void loadROM(std::string file_name){
     for(int i=0; i<0x10; i++){
         file.get(c);
         if(i==4) prog_size = c;
+        if(i==6) mirroring_layout = c&1;
     }
     //Program ROM
     if(prog_size == 1){
@@ -1765,10 +1783,9 @@ void loadROM(std::string file_name){
         file.get(c);
         VRAM[i] = c;
     }
-    if(prog_size == 1) memcpy(&mem[0x7fff], &mem[0xbfff], sizeof(uint8_t) * 0x4000);
+    if(prog_size == 1) memcpy(&mem[0x8000], &mem[0xc000], sizeof(uint8_t) * 0x4000);
     //Initialize pc
     pc = read_pair(RES_addr);
-    //pc = 0xc000;
 }
 
 

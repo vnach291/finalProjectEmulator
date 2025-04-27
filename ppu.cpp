@@ -17,7 +17,6 @@ bool w = false;
 #define PPUCTRL mem[0x2000]
 #define PPUMASK mem[0x2001]
 #define PPUSTATUS mem[0x2002]
-#define PPUSCROLL mem[0x2005]
 #define OAMDMA mem[0x4014]
 
 /////////////////////////////Special Address Handling
@@ -32,10 +31,11 @@ void write_PPUADDR(uint8_t data){
     w = !w;
 }
 uint8_t read_PPUDATA(){
-    return VRAM[ppuaddr];
+    return VRAM[VRAM_addr(ppuaddr)];
 }
 void write_PPUDATA(uint8_t data){
-    VRAM[ppuaddr] = data;
+    //if(VRAM_addr(ppuaddr) == (0x3f00 | ((0)<<4) | ((0)<<2) | (0))) printf("%02X\n", data);
+    VRAM[VRAM_addr(ppuaddr)] = data;
     ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
 }
 //OAM mapping
@@ -53,14 +53,28 @@ void write_OAMDATA(uint8_t data){
 void write_OAMDMA(uint8_t data){
     memcpy(&OAM[oamaddr], &mem[data<<8], 256 * sizeof(uint8_t));
 }
+//Scroll handling
+uint16_t x_scroll;
+uint16_t y_scroll;
+void write_PPUSCROLL(uint8_t data){
+    if(!w) {
+        x_scroll = data;
+    } else {
+        y_scroll = data;
+    }
+    w = !w;
+}
 
 /////////////////////////////Tracking vars
+bool DEBUG_SCREEN = true;
+bool GRAYSCALE = false;
 const int FPS = 60;
 const int SCREEN_WIDTH = 256;
 const int SCREEN_HEIGHT = 240;
 const int SCREEN_SCALE = 3;
 int cycles = 0;
 int scanline = 0;
+int mirroring_layout;
 
 /**
  * Note:
@@ -89,7 +103,7 @@ void setup_PPU(){
     }
 
     //Create window
-    window = SDL_CreateWindow("Emutedlater",
+    window = SDL_CreateWindow("emuLATER",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
@@ -164,7 +178,7 @@ void render_frame(){
     SDL_RenderPresent(renderer);
 
     //Delay for FPS
-    SDL_Delay(1000/FPS);
+    if(!DEBUG_SCREEN) SDL_Delay(1000/FPS);
 }
 
 
@@ -181,7 +195,9 @@ uint32_t PALETTE[64] = {
     0xFCFCFCFF, 0xA4E4FCFF, 0xB8B8F8FF, 0xD8B8F8FF, 0xF8B8F8FF, 0xF8A4C0FF, 0xF0D0B0FF, 0xFCE0A8FF,
     0xF8D878FF, 0xD8F878FF, 0xB8F8B8FF, 0xB8F8D8FF, 0x00FCFCFF, 0xF8D8F8FF, 0x000000FF, 0x000000FF
 };
-
+uint32_t GRAYS[4] = {
+    0x000000FF, 0x404040FF, 0x808080FF, 0xC0C0C0FF
+};
 /////////////////////////////Helper methods/macros
 //Reg interpreters
 #define sprite_pattern_table_index ((PPUCTRL>>3)&1)
@@ -204,14 +220,89 @@ uint32_t PALETTE[64] = {
         ((sprite_pattern_table_index<<12) | (tile_index<<4) | ((fine_y)&0b111)) // normal 8x8 mode
 
 #define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
-#define nametable_address(x, y) ((0x2000 | (nametable_index<<10)) + (((y)<<5) | (x)))
-#define attribute_address(x, y) ((0x2000 | (nametable_index<<10)) + (0x3c0) + (((y)<<3) | (x)))
+//#define nametable_address(x, y) ((0x2000 | (nametable_index<<10)) + (((y)<<5) | (x)))
+//#define attribute_address(x, y) ((0x2000 | (nametable_index<<10)) + (0x3c0) + (((y)<<3) | (x)))
 #define attribute_palette_index(dat, i) (((dat)>>((i)<<1))&0b11)
 #define color_address(palette, i, type) (0x3f00 | ((type)<<4) | ((palette)<<2) | (i))
+uint16_t VRAM_addr(uint16_t addr){
+    uint16_t new_addr = addr;
+    if(mirroring_layout == 0){
+        //horizontal
+        if(addr >= 0x2400 && addr < 0x2800) new_addr = addr-0x400;
+        if(addr >= 0x2C00 && addr < 0x3000) new_addr = addr-0x400;
+    } else {
+        //vertical
+        if(addr >= 0x2800 && addr < 0x3000) new_addr = addr-0x800;
+    }
+    return new_addr;
+}
+uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
+    uint16_t base = (0x2000 | (nametable_index<<10));
+    if(mirroring_layout == 0){
+        //horizontal
+        if(x >= 32) {
+            x%=32;
+        }
+        if(y >= 30) {
+            y%=30;
+            if(nametable_index&0b10) {
+                base -= 0x800;
+            } else {
+                base += 0x800;
+            }
+        }
+    } else {
+        //vertical
+        if(x >= 32) {
+            x%=32;
+            if(nametable_index&0b01) {
+                base -= 0x400;
+            } else {
+                base += 0x400;
+            }
+        }
+        if(y >= 30) {
+            y%=30;
+        }
+    }
+    return base | (y<<5) | x;
+}
+uint16_t scrolled_at_addr(uint8_t x, uint8_t y){
+    uint16_t base = (0x2000 | (nametable_index<<10));
+    if(mirroring_layout == 0){
+        //horizontal
+        if(x >= 8) {
+            x%=8;
+        }
+        if(y >= 8) {
+            y%=8;
+            if(nametable_index&0b10) {
+                base -= 0x800;
+            } else {
+                base += 0x800;
+            }
+        }
+    } else {
+        //vertical
+        if(x >= 8) {
+            x%=8;
+            if(nametable_index&0b01) {
+                base -= 0x400;
+            } else {
+                base += 0x400;
+            }
+        }
+        if(y >= 8) {
+            y%=8;
+        }
+    }
+    return base + 0x3c0 + ((y<<3) | x);
+}
 
 /////////////////////////////Run PPU
 bool hit_this_frame;
 bool is_odd;
+bool can_be_sprite_0 = false;
 void PPU_cycle(){
     //Increment cycle and handle end of scanline
     cycles++;
@@ -225,6 +316,9 @@ void PPU_cycle(){
         //Render
         if(cycles >= 1 && cycles <= 256){
             uint x = cycles-1;
+            uint effective_x = x+x_scroll;
+            uint y=scanline;
+            uint effective_y = y+y_scroll;
             //Get sprite pixel
             uint32_t sprite_color;
             bool sprite_transparent = true;
@@ -232,7 +326,7 @@ void PPU_cycle(){
             bool is_sprite_0;
 
             if(should_render_sprite == 1 && scanline > 0 && (x >= 8 || show_left_sprite)){
-                uint y=scanline-1;
+                y--;
                 //Read from OAM2
                 for(int i=0; i<8; i++){
                     //Read attribute
@@ -245,12 +339,14 @@ void PPU_cycle(){
                     //Get fine x/fine y
                     uint8_t sprite_x = OAM2[(i<<2) + 3];
                     uint8_t sprite_y = OAM2[(i<<2)];
+
                     uint fine_x = x-sprite_x;
                     if(flipX) fine_x = 7-fine_x;
                     
                     uint fine_y = y-sprite_y;
                     uint height = sprite_size;
                     if(flipY) fine_y = height - 1 - fine_y;
+
                     if(fine_x < 0 || fine_x >= 8) continue;
                     if(fine_y < 0 || fine_y >= height) continue;
 
@@ -266,13 +362,15 @@ void PPU_cycle(){
                     //Get color
                     int color_index = VRAM[color_address(palette_type, palette_index, 1)];
                     sprite_color = PALETTE[color_index];
+                    if(GRAYSCALE) sprite_color = GRAYS[palette_type];
 
                     //Break on success
                     if(!sprite_transparent){
-                        is_sprite_0 = i==0;
+                        is_sprite_0 = i==0 && can_be_sprite_0;
                         break;
                     }
                 }
+                y++;
             }
             
             //Get bg pixel
@@ -280,22 +378,23 @@ void PPU_cycle(){
             bool bg_transparent = true;
             if(should_render_bg == 1 && (x >= 8 || show_left_bg)){
                 //Read nametable (tile address)
-                uint8_t tile_addr = VRAM[nametable_address(x>>3, scanline>>3)];
+                uint8_t tile_addr = VRAM[VRAM_addr(scrolled_nt_addr(effective_x>>3, effective_y>>3))];
 
                 //Read pattern (using tile address)
-                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, scanline%8)];
-                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, scanline%8)|0b1000];
-                int palette_index = (((tile_data_hi>>(7-x%8))&1)<<1) + ((tile_data_lo>>(7-x%8))&1);
+                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
+                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
+                int palette_index = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
                 if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
-                uint8_t palette_data = VRAM[attribute_address(x>>5, scanline>>5)];
-                int palette_section = (((scanline>>4)%2)<<1) + ((x>>4)%2);
+                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>5, effective_y>>5))];
+                int palette_section = (((effective_y>>4)%2)<<1) + ((effective_x>>4)%2);
                 int palette_type = (palette_data>>(palette_section<<1))&0b11;
 
                 //Get color
                 int color_index = VRAM[color_address(palette_type, palette_index, 0)];
                 bg_color = PALETTE[color_index];
+                if(GRAYSCALE) bg_color = GRAYS[palette_type];
             }
             
             //Draw with logic
@@ -303,6 +402,7 @@ void PPU_cycle(){
             //Universal color
             if(sprite_transparent && bg_transparent){
                 pixel_color = PALETTE[VRAM[color_address(0, 0, 0)]];
+                if(GRAYSCALE) pixel_color = 0xFFFFFFFF;
             } 
             //Just BG
             else if(sprite_transparent && !bg_transparent){
@@ -322,19 +422,22 @@ void PPU_cycle(){
                 pixel_color = sprite_unpriority ? bg_color : sprite_color;
             }
             //Set color
-            frame_buffer[scanline*SCREEN_WIDTH + x] = pixel_color;
+            frame_buffer[scanline*SCREEN_WIDTH + x] = pixel_color;// / (((x>>5)%2 != (y>>5)%2)?2:1) / (((x>>4)%2 != (y>>4)%2)?3:1);
         }
         //Fill OAM2 once
         else if(cycles == 257) {
+            PPUSTATUS |= 0b01000000;
             int cnt = 0;
             uint y=scanline;
             uint height = sprite_size; 
+            can_be_sprite_0 = false;
             //Find first 8 sprites on the scanline and copy to OAM2
             for(int i=0; i<64; i++){
                 uint8_t sprite_y = OAM[i<<2];
                 uint fine_y = y-sprite_y;
                 if(fine_y < 0 || fine_y >= height) continue;
                 memcpy(&OAM2[cnt<<2], &OAM[i<<2], sizeof(uint8_t) * 4);
+                if(i==0) can_be_sprite_0 = true;
                 cnt++;
                 if(cnt == 8) break;
             }
@@ -355,6 +458,7 @@ void PPU_cycle(){
         }
         PPUSTATUS |= 0b10000000; //enable VBlank
         render_frame();
+        if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
     }
 
     //Handle VBlank ends
@@ -367,9 +471,11 @@ void PPU_cycle(){
 
     //Handle reset
     else if(scanline == 261){
-        //TODO odd check
+        if(cycles == 0) PPUSTATUS &= 0b10111111;
+        is_odd = !is_odd;
         if((cycles == 339 && is_odd && (should_render_bg || should_render_sprite)) || 
             cycles == 340){
+            cycles = 0;
             scanline = 0;
             hit_this_frame = false;
         }
