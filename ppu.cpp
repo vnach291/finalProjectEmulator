@@ -283,45 +283,32 @@ uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
     }
     return base | (y<<5) | x;
 }
-uint16_t scrolled_at_addr(uint8_t x, uint8_t y){
-    bool post_y = y%2 == 1;
-    x>>=1;
-    y>>=1;
-    uint16_t base = (0x2000 | (nametable_index<<10));
-    if(mirroring_layout == 0){
-        //horizontal
-        if(x >= 8) {
-            x%=8;
+uint16_t scrolled_at_addr(uint8_t x, uint8_t y) {
+    uint16_t base = 0x2000;
+    
+    if (mirroring_layout == 0) { // Horizontal mirroring
+        if (y >= 240) {
+            base ^= 0x800;
+            y -= 240;
         }
-        if(y >= 8) {
-            y%=8;
-            if(nametable_index&0b10) {
-                base -= 0x800;
-            } else {
-                base += 0x800;
-            }
+        if (x >= 256) {
+            base ^= 0x400;
+            x -= 256;
         }
-    } else {
-        //vertical
-        if(x >= 8) {
-            x%=8;
-            if(nametable_index&0b01) {
-                base -= 0x400;
-            } else {
-                base += 0x400;
-            }
+    } else { // Vertical mirroring
+        if (x >= 256) {
+            base ^= 0x800;
+            x -= 256;
         }
-        if(y >= 8) {
-            y%=8;
+        if (y >= 240) {
+            y -= 240;
         }
     }
-    bool special_wrap = false;
-    /* if(y==7 && post_y) {
-        y = 0;
-        special_wrap = true;
-    } */
-    return base + 0x3c0 + ((y<<3) | x) + (special_wrap?post_y<<2:0);
+
+    return base + 0x3C0 + ((y >> 5) << 3) + (x >> 5);
 }
+
+
 
 /////////////////////////////Run PPU
 bool hit_this_frame;
@@ -411,9 +398,9 @@ void PPU_cycle(){
                 if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
-                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>4, effective_y>>4))];
-                int palette_section = (((effective_y>>4)%2)<<1) + ((effective_x>>4)%2);
-                int palette_type = (palette_data>>(palette_section<<1))&0b11;
+                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x, effective_y))];
+                int palette_section = (((effective_y >> 4) & 2) | ((effective_x >> 4) & 1));
+                int palette_type = (palette_data >> (palette_section * 2)) & 0b11;
 
                 //Get color
                 int color_index = VRAM[color_address(palette_type, palette_index, 0)];
