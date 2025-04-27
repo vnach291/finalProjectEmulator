@@ -23,14 +23,14 @@ void enable_polling(uint8_t data){
 #define Down1 SDL_SCANCODE_S
 #define Left1 SDL_SCANCODE_A
 #define Right1 SDL_SCANCODE_D
-#define A2 SDL_SCANCODE_L
-#define B2 SDL_SCANCODE_K
-#define Select2 SDL_SCANCODE_T
-#define Start2 SDL_SCANCODE_Y
-#define Up2 SDL_SCANCODE_W
-#define Down2 SDL_SCANCODE_S
-#define Left2 SDL_SCANCODE_A
-#define Right2 SDL_SCANCODE_D
+#define A2 SDL_SCANCODE_V
+#define B2 SDL_SCANCODE_V
+#define Select2 SDL_SCANCODE_V
+#define Start2 SDL_SCANCODE_V
+#define Up2 SDL_SCANCODE_V
+#define Down2 SDL_SCANCODE_V
+#define Left2 SDL_SCANCODE_V
+#define Right2 SDL_SCANCODE_V
 /**
  * Note: The following website was used to understand how to use SDL for polling
  * https://emudev.de/nes-emulator/implementing-controls/

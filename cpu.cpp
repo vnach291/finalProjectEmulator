@@ -80,6 +80,7 @@ void write_mem(uint16_t addr, uint8_t v){
         case 0x4014:
             //OAMDMA
             write_OAMDMA(v);
+            inc_cycle(513);
             break;
         case 0x4016:
             //Controller Polling

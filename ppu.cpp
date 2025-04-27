@@ -54,7 +54,8 @@ void write_OAMADDR(uint8_t data){
     oamaddr = data;
 }
 uint8_t read_OAMDATA(){
-    return OAM[oamaddr];
+    uint8_t res = OAM[oamaddr];
+    return res;
 }
 void write_OAMDATA(uint8_t data){
     OAM[oamaddr] = data;
@@ -347,7 +348,7 @@ void PPU_cycle(){
             bool sprite_unpriority;
             bool is_sprite_0;
 
-            if(should_render_sprite == 1 && scanline > 0 && (x >= 8 || show_left_sprite)){
+            if(should_render_sprite == 1 && scanline > 0 && (x >= 8 || show_left_sprite==1)){
                 y--;
                 //Read from OAM2
                 for(int i=0; i<8; i++){
@@ -368,7 +369,7 @@ void PPU_cycle(){
                     uint fine_y = y-sprite_y;
                     uint height = sprite_size;
                     if(flipY) fine_y = height - 1 - fine_y;
-
+                    
                     if(fine_x < 0 || fine_x >= 8) continue;
                     if(fine_y < 0 || fine_y >= height) continue;
 
@@ -398,7 +399,7 @@ void PPU_cycle(){
             //Get bg pixel
             uint32_t bg_color;
             bool bg_transparent = true;
-            if(should_render_bg == 1 && (x >= 8 || show_left_bg)){
+            if(should_render_bg == 1 && (x >= 8 || show_left_bg==1)){
                 //Read nametable (tile address)
                 uint8_t tile_addr = VRAM[VRAM_addr(scrolled_nt_addr(effective_x>>3, effective_y>>3))];
 
@@ -448,7 +449,6 @@ void PPU_cycle(){
         }
         //Fill OAM2 once
         else if(cycles == 257) {
-            PPUSTATUS |= 0b01000000;
             int cnt = 0;
             uint y=scanline;
             uint height = sprite_size; 
@@ -482,14 +482,6 @@ void PPU_cycle(){
         render_frame();
         if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
     }
-
-    //Handle VBlank ends
-    /* else if(scanline == 261 && cycles == 1){
-        //TODO disable based on PPUCTRL
-        PPUSTATUS &= 0b01111111; //disable VBlank
-        scanline = 0;
-        hit_this_frame = false;
-    } */
 
     //Handle reset
     else if(scanline == 261){
