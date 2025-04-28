@@ -39,6 +39,14 @@ uint8_t read_PPUDATA(){
         ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
         return res;
     }
+    if ((ppuaddr & 0x2007) == 0x2002) {
+        uint8_t status = PPUSTATUS;
+        // clear bits 7 (VBlank) and 6 (sprite-0 hit):
+        PPUSTATUS &= 0x1F;
+        // reset the first/second‐write toggle
+        w = false;
+        return status;
+    }
     uint8_t res = read_PPUDATA_buffer;
     read_PPUDATA_buffer = VRAM[VRAM_addr(ppuaddr)];
     ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
@@ -452,7 +460,7 @@ void PPU_cycle(){
             else {
                 //Do sprite 0 hit
                 if(is_sprite_0 && !hit_this_frame && x != 255){
-                    //printf("%d %d %d %d\n", x, y, effective_x, effective_y);
+                    printf("%d %d %d %d\n", x, y, effective_x, effective_y);
                     PPUSTATUS |= 0b01000000;
                     hit_this_frame = true;
                 }
