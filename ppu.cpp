@@ -182,6 +182,8 @@ void render_frame(){
 
         memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
         SDL_UnlockTexture(texture);
+
+     
      
     }
     SDL_RenderCopy(renderer, texture, NULL, &destRect);
@@ -252,55 +254,36 @@ uint16_t VRAM_addr(uint16_t addr){
     if(new_addr == 0x3F10) new_addr = 0x3F00;
     return new_addr;
 }
-uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
-    uint16_t base = (0x2000 | (nametable_index<<10));
-    if(mirroring_layout == 0){
-        //horizontal
-        if(x >= 32) {
-            x%=32;
-        }
-        if(y >= 30) {
-            y%=30;
-            if(nametable_index&0b10) {
-                base -= 0x800;
-            } else {
-                base += 0x800;
-            }
-        }
-    } else {
-        //vertical
-        if(x >= 32) {
-            x%=32;
-            if(nametable_index&0b11) {
-                base -= 0x400;
-            } else {
-                base += 0x400;
-            }
-        }
-        if(y >= 30) {
-            y%=30;
-        }
-    }
-    return base | (y<<5) | x;
+// x_tile and y_tile are the coarse tile coords: (pixel_x + scroll_x) >> 3, (pixel_y + scroll_y) >> 3
+uint16_t scrolled_nt_addr(uint8_t x_tile, uint8_t y_tile) {
+    // wrap into 0..31 / 0..29
+    if (x_tile >= 32) x_tile %= 32;
+    if (y_tile >= 30) y_tile %= 30;
+
+    // which of the 4 nametables?
+    int table_x = (x_tile >> 5) & 1; // 0 or 1
+    int table_y = (y_tile >> 5) & 1; // 0 or 1
+    int nt_bits = (table_y << 1) | table_x;
+
+    uint16_t base = 0x2000 | (nt_bits << 10);
+    return base + (y_tile << 5) + x_tile;
 }
-uint16_t scrolled_at_addr(uint8_t tile_x, uint8_t tile_y) {
-    uint8_t attr_x = tile_x >> 2;
-    uint8_t attr_y = tile_y >> 2;
 
-    int nt_x = (tile_x >> 5) & 1;
-    int nt_y = (tile_y >> 5) & 1;
-    int effective_nametable = (nt_y << 1) | nt_x;
+uint16_t scrolled_at_addr(uint8_t x_tile, uint8_t y_tile) {
+    // same wrap / table selection as above:
+    if (x_tile >= 32) x_tile %= 32;
+    if (y_tile >= 30) y_tile %= 30;
+    int table_x = (x_tile >> 5) & 1;
+    int table_y = (y_tile >> 5) & 1;
+    int nt_bits  = (table_y << 1) | table_x;
 
-    uint16_t nt_base;
-    if (mirroring_layout == 0) {
-        //horizontal mirroring
-        nt_base = 0x2000 | ((effective_nametable & 1) << 10);
-    } else {
-        //vertical mirroring
-        nt_base = 0x2000 | (effective_nametable << 10);
-    }
+    // now inside that nametable, attributes start at +0x3C0
+    // each attribute byte covers a 4×4 tile block → we divide tiles by 4:
+    uint8_t attr_x = (x_tile & 0x1F) >> 2; // 0..7
+    uint8_t attr_y = (y_tile & 0x1F) >> 2; // 0..7
 
-    return nt_base + 0x3C0 + (attr_y * 8 + attr_x);
+    uint16_t base = 0x2000 | (nt_bits << 10) | 0x03C0;
+    return base + (attr_y << 3) + attr_x;
 }
 
 
@@ -382,26 +365,44 @@ void PPU_cycle(){
             uint32_t bg_color;
             bool bg_transparent = true;
             if(should_render_bg == 1 && (x >= 8 || show_left_bg==1)){
-                //Read nametable (tile address)
-                uint8_t tile_addr = VRAM[VRAM_addr(scrolled_nt_addr(effective_x>>3, effective_y>>3))];
+                    // ---- replacement bg‐pixel code start ----
+    // coarse tile coords after scroll
+    uint8_t tX = effective_x >> 3;
+    uint8_t tY = effective_y >> 3;
 
-                //Read pattern (using tile address)
-                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
-                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
-                int palette_index = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
-                if(palette_index != 0) bg_transparent = false;
+    // 1) fetch the tile index from the correct nametable
+    uint16_t ntAddr   = scrolled_nt_addr(tX, tY);
+    uint8_t  tile_idx = VRAM[ VRAM_addr(ntAddr) ];
 
-                //Read attribute + index within
-                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>3, effective_y>>3))];
-                int quadrant_x = (effective_x >> 4) & 1;  // Which 16x16 block in X
-                int quadrant_y = (effective_y >> 4) & 1;  // Which 16x16 block in Y
-                int palette_shift = (quadrant_y << 1) | quadrant_x;  // 0, 1, 2, or 3
-                int palette_type = (palette_data >> (palette_shift * 2)) & 0x03;
+    // 2) read its two bitplanes & build the 2-bit pixel value
+    int fineX = effective_x & 7;
+    int fineY = effective_y & 7;
+    uint8_t lo = VRAM[ bg_pattern_address(tile_idx, fineY)       ];
+    uint8_t hi = VRAM[ bg_pattern_address(tile_idx, fineY) | 0x8 ];
+    int low2 = (((hi >> (7 - fineX)) & 1) << 1)
+             |  ((lo >> (7 - fineX)) & 1);
+    bg_transparent = (low2 == 0);
 
-                //Get color
-                int color_index = VRAM[color_address(palette_type, palette_index, 0)];
-                bg_color = PALETTE[color_index];
-                if(GRAYSCALE) bg_color = GRAYS[palette_type];
+// fetch the attribute byte
+uint16_t atAddr  = scrolled_at_addr(tX, tY);
+uint8_t  attr    = VRAM[ VRAM_addr(atAddr) ];
+
+// pick one of the four 2-bit entries in that byte:
+// quadrant 0 = top-left, 1 = top-right, 2 = bot-left, 3 = bot-right
+int quadrant = ((tY & 0x02) ? 2 : 0)  // Y-bit1 → high bit
+             | ((tX & 0x02) ? 1 : 0); // X-bit1 → low bit
+
+int palNum = (attr >> (quadrant * 2)) & 0x03;
+
+
+uint16_t colAddr = 0x3F00   // universal palette base
+                 | (palNum << 2)
+                 | low2;    // your 2-bit pixel from the bitplanes
+uint8_t ci       = VRAM[ VRAM_addr(colAddr) ];
+bg_color         = PALETTE[ ci ];
+
+    // ---- replacement bg‐pixel code end ----
+
             }
             
             //Draw with logic
