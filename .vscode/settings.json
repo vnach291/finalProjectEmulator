@@ -11,9 +11,6 @@
         "utility": "cpp",
         "variant": "cpp",
         "numbers": "cpp",
-        "iostream": "cpp",
-        "string": "cpp",
-        "string_view": "cpp",
-        "vector": "cpp"
+        "string_view": "cpp"
     }
 }
