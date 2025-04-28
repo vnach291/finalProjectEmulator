@@ -81,14 +81,6 @@ uint8_t read_PPUDATA(){
         inc_v();
         return res;
     }
-    if ((ppuaddr & 0x2007) == 0x2002) {
-        uint8_t status = PPUSTATUS;
-        // clear bits 7 (VBlank) and 6 (sprite-0 hit):
-        PPUSTATUS &= 0x1F;
-        // reset the first/second‐write toggle
-        w = false;
-        return status;
-    }
     uint8_t res = read_PPUDATA_buffer;
     read_PPUDATA_buffer = VRAM[VRAM_addr(v)];
     inc_v();
@@ -236,10 +228,8 @@ void render_frame(){
         uint32_t* frame_ptr = (uint32_t*)frame_rendered;
 
         memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
-        SDL_UnlockTexture(texture);
 
-     
-     
+        SDL_UnlockTexture(texture);
     }
     SDL_RenderCopy(renderer, texture, NULL, &destRect);
 
@@ -398,13 +388,13 @@ void PPU_cycle(){
                 //Read pattern (using tile address)
                 uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, (v&0x7000)>>12)];
                 uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, (v&0x7000)>>12)|0b1000];
-                uint8_t fine_x = 7-(dot-x)%8;
+                uint8_t fine_x = 7-((dot+x)%8);
                 int palette_index = (((tile_data_hi>>fine_x)&1)<<1) + ((tile_data_lo>>fine_x)&1);
                 if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
                 uint8_t palette_data = VRAM[VRAM_addr(attribute_address)];
-                int palette_section = (((v>>5)&1)<<1) + (v&1);
+                int palette_section = ((((v>>5)&0x1F)&2) | ((v&0x1F)&2)>>1);
                 int palette_type = (palette_data>>(palette_section<<1))&0b11;
 
                 //Get color
@@ -502,7 +492,7 @@ void PPU_cycle(){
             v &= ~0x41F;
             v |= t&0x41F;
         }
-        if(cycles <= 256 && cycles%8==0 && cycles!=0){
+        if(cycles <= 256 && (cycles+x)%8==0 && cycles!=0){
             inc_x();
         }
         if(scanline == 261){
