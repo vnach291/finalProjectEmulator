@@ -145,7 +145,8 @@ int mirroring_layout;
 /////////////////////////////Handle Rendering
 SDL_Window* window;
 SDL_Texture* texture;
-SDL_Rect destRect = {0, 0, SCREEN_WIDTH*SCREEN_SCALE, SCREEN_HEIGHT*SCREEN_SCALE};
+SDL_Rect srcRect = {0, 8, SCREEN_WIDTH, (SCREEN_HEIGHT-16)};
+SDL_Rect destRect = {0, 0, SCREEN_WIDTH*SCREEN_SCALE, (SCREEN_HEIGHT-16)*SCREEN_SCALE};
 SDL_Renderer* renderer;
 uint32_t frame_buffer[SCREEN_WIDTH*SCREEN_HEIGHT];
 uint32_t frame_buffert[SCREEN_WIDTH*SCREEN_HEIGHT];
@@ -164,7 +165,7 @@ void setup_PPU(){
     //Create window
     window = SDL_CreateWindow("emuLATER",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
+        SCREEN_WIDTH * SCREEN_SCALE, (SCREEN_HEIGHT-16) * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
     if (!window) {
         printf("unable to create window\n");
@@ -233,7 +234,7 @@ void render_frame(){
      
      
     }
-    SDL_RenderCopy(renderer, texture, NULL, &destRect);
+    SDL_RenderCopy(renderer, texture, &srcRect, &destRect);
 
     //Do render
     SDL_RenderPresent(renderer);
@@ -390,13 +391,13 @@ void PPU_cycle(){
                 //Read pattern (using tile address)
                 uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, (v&0x7000)>>12)];
                 uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, (v&0x7000)>>12)|0b1000];
-                uint8_t fine_x = 7-(dot-x)%8;
+                uint8_t fine_x = 7-((dot+x)%8);
                 int palette_index = (((tile_data_hi>>fine_x)&1)<<1) + ((tile_data_lo>>fine_x)&1);
                 if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
                 uint8_t palette_data = VRAM[VRAM_addr(attribute_address)];
-                int palette_section = (((v>>5)&1)<<1) + (v&1);
+                int palette_section = ((((v>>5)&0x1F)&2) | ((v&0x1F)&2)>>1);
                 int palette_type = (palette_data>>(palette_section<<1))&0b11;
 
                 //Get color
@@ -499,7 +500,7 @@ void PPU_cycle(){
             v &= ~0x41F;
             v |= t&0x41F;
         }
-        if(cycles <= 256 && cycles%8==0 && cycles!=0){
+        if(cycles <= 256 && (cycles+x)%8==0 && cycles!=0){
             inc_x();
         }
         if(scanline == 261){
