@@ -183,8 +183,6 @@ void render_frame(){
         memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
         SDL_UnlockTexture(texture);
 
-     
-     
     }
     SDL_RenderCopy(renderer, texture, NULL, &destRect);
 
