@@ -44,7 +44,6 @@ uint8_t read_PPUDATA(){
     return res;
 }
 void write_PPUDATA(uint8_t data){
-    //if(VRAM_addr(ppuaddr) == (0x3f00 | ((0)<<4) | ((0)<<2) | (0))) printf("%02X\n", data);
     VRAM[VRAM_addr(ppuaddr)] = data;
     ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
 }
@@ -65,13 +64,15 @@ void write_OAMDMA(uint8_t data){
     memcpy(&OAM[oamaddr], &mem[data<<8], 256 * sizeof(uint8_t));
 }
 //Scroll handling
+uint16_t hold_x_scroll;
+uint16_t hold_y_scroll;
 uint16_t x_scroll;
 uint16_t y_scroll;
 void write_PPUSCROLL(uint8_t data){
     if(!w) {
-        x_scroll = data;
+        hold_x_scroll = data;
     } else {
-        y_scroll = data;
+        hold_y_scroll = data;
     }
     w = !w;
 }
@@ -180,8 +181,10 @@ void render_frame(){
         uint32_t* frame_ptr = (uint32_t*)frame_rendered;
 
         memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
-
         SDL_UnlockTexture(texture);
+
+     
+     
     }
     SDL_RenderCopy(renderer, texture, NULL, &destRect);
 
@@ -213,7 +216,7 @@ uint32_t GRAYS[4] = {
 //Reg interpreters
 #define sprite_pattern_table_index ((PPUCTRL>>3)&1)
 #define bg_pattern_table_index ((PPUCTRL>>4)&1)
-#define nametable_index (PPUCTRL&0b11)
+int nametable_index = 0;
 #define NMI_enabled (PPUCTRL>>7)
 #define should_render_sprite ((PPUMASK>>4)&1)
 #define should_render_bg ((PPUMASK>>3)&1)
@@ -251,75 +254,70 @@ uint16_t VRAM_addr(uint16_t addr){
     if(new_addr == 0x3F10) new_addr = 0x3F00;
     return new_addr;
 }
-uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
-    uint16_t base = (0x2000 | (nametable_index<<10));
-    if(mirroring_layout == 0){
-        //horizontal
-        if(x >= 32) {
-            x%=32;
-        }
-        if(y >= 30) {
-            y%=30;
-            if(nametable_index&0b10) {
-                base -= 0x800;
-            } else {
-                base += 0x800;
-            }
-        }
-    } else {
-        //vertical
-        if(x >= 32) {
-            x%=32;
-            if(nametable_index&0b01) {
-                base -= 0x400;
-            } else {
-                base += 0x400;
-            }
-        }
-        if(y >= 30) {
-            y%=30;
-        }
+
+// uint16_t scrolled_nt_addr(uint8_t x_tile, uint8_t y_tile) {
+//     // wrap into 0..31 / 0..29
+//     if (x_tile >= 32) x_tile %= 32;
+//     if (y_tile >= 30) y_tile %= 30;
+
+//     // which of the 4 nametables
+//     int table_x = (x_tile >> 5) & 1;
+//     int table_y = (y_tile >> 5) & 1;
+//     int nt_bits = (table_y << 1) | table_x;
+
+//     uint16_t base = 0x2000 | (nt_bits << 10);
+//     return base + (y_tile << 5) + x_tile;
+// }
+
+uint16_t scrolled_nt_addr(uint8_t x_tile, uint8_t y_tile) {
+    uint8_t base_nt = nametable_index;
+    
+    if (x_tile >= 32) {
+        base_nt ^= 0x01;  // Toggle horizontal nametable bit
     }
-    return base | (y<<5) | x;
+    
+    if (y_tile >= 30) {
+        base_nt ^= 0x02;  // Toggle vertical nametable bit
+    }
+    
+    x_tile %= 32;
+    y_tile %= 30;
+    
+    return 0x2000 | (base_nt << 10) | (y_tile << 5) | x_tile;
 }
-uint16_t scrolled_at_addr(uint8_t x, uint8_t y){
-    bool post_y = y%2 == 1;
-    x>>=1;
-    y>>=1;
-    uint16_t base = (0x2000 | (nametable_index<<10));
-    if(mirroring_layout == 0){
-        //horizontal
-        if(x >= 8) {
-            x%=8;
-        }
-        if(y >= 8) {
-            y%=8;
-            if(nametable_index&0b10) {
-                base -= 0x800;
-            } else {
-                base += 0x800;
-            }
-        }
-    } else {
-        //vertical
-        if(x >= 8) {
-            x%=8;
-            if(nametable_index&0b01) {
-                base -= 0x400;
-            } else {
-                base += 0x400;
-            }
-        }
-        if(y >= 8) {
-            y%=8;
-        }
+
+// uint16_t scrolled_at_addr(uint8_t x_tile, uint8_t y_tile) {
+//     if (x_tile >= 32) x_tile %= 32;
+//     if (y_tile >= 30) y_tile %= 30;
+//     int table_x = (x_tile >> 5) & 1;
+//     int table_y = (y_tile >> 5) & 1;
+//     int nt_bits  = (table_y << 1) | table_x;
+
+//     uint8_t attr_x = (x_tile & 0x1F) >> 2;
+//     uint8_t attr_y = (y_tile & 0x1F) >> 2;
+
+//     uint16_t base = 0x2000 | (nt_bits << 10) | 0x03C0;
+//     return base + (attr_y << 3) + attr_x;
+// }
+
+uint16_t scrolled_at_addr(uint8_t x_tile, uint8_t y_tile) {
+    uint8_t base_nt = nametable_index;
+    
+    if (x_tile >= 32) {
+        base_nt ^= 0x01;  // Toggle horizontal nametable bit
     }
-    bool special_wrap = false;
-    /* if(y==7 && post_y) {
-        y = 0;
-        special_wrap = true;
-    } */
-    return base + 0x3c0 + ((y<<3) | x) + (special_wrap?post_y<<2:0);
+    
+    if (y_tile >= 30) {
+        base_nt ^= 0x02;  // Toggle vertical nametable bit
+    }
+    
+    x_tile %= 32;
+    y_tile %= 30;
+    
+    uint8_t attr_x = x_tile >> 2;  // x_tile / 4
+    uint8_t attr_y = y_tile >> 2;  // y_tile / 4
+    
+    return 0x2000 | (base_nt << 10) | 0x03C0 | (attr_y << 3) | attr_x;
 }
 
 /////////////////////////////Run PPU
@@ -400,24 +398,37 @@ void PPU_cycle(){
             uint32_t bg_color;
             bool bg_transparent = true;
             if(should_render_bg == 1 && (x >= 8 || show_left_bg==1)){
-                //Read nametable (tile address)
-                uint8_t tile_addr = VRAM[VRAM_addr(scrolled_nt_addr(effective_x>>3, effective_y>>3))];
+                // coarse tile coords after scroll
+                uint8_t tX = effective_x >> 3;
+                uint8_t tY = effective_y >> 3;
 
-                //Read pattern (using tile address)
-                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
-                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
-                int palette_index = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
-                if(palette_index != 0) bg_transparent = false;
+                // fetch the tile index
+                uint16_t ntAddr   = scrolled_nt_addr(tX, tY);
+                uint8_t  tile_idx = VRAM[ VRAM_addr(ntAddr) ];
 
-                //Read attribute + index within
-                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>4, effective_y>>4))];
-                int palette_section = (((effective_y>>4)%2)<<1) + ((effective_x>>4)%2);
-                int palette_type = (palette_data>>(palette_section<<1))&0b11;
+                // read two bitplanes
+                int fineX = effective_x & 7;
+                int fineY = effective_y & 7;
+                uint8_t lo = VRAM[ bg_pattern_address(tile_idx, fineY)       ];
+                uint8_t hi = VRAM[ bg_pattern_address(tile_idx, fineY) | 0x8 ];
+                int low2 = (((hi >> (7 - fineX)) & 1) << 1)
+                        |  ((lo >> (7 - fineX)) & 1);
+                bg_transparent = (low2 == 0);
 
-                //Get color
-                int color_index = VRAM[color_address(palette_type, palette_index, 0)];
-                bg_color = PALETTE[color_index];
-                if(GRAYSCALE) bg_color = GRAYS[palette_type];
+                uint16_t atAddr  = scrolled_at_addr(tX, tY);
+                uint8_t  attr    = VRAM[ VRAM_addr(atAddr) ];
+
+                int quadrant = ((tY & 0x02) ? 2 : 0)
+                            | ((tX & 0x02) ? 1 : 0);
+
+                int palNum = (attr >> (quadrant * 2)) & 0x03;
+
+
+                uint16_t colAddr = 0x3F00
+                                | (palNum << 2)
+                                | low2;
+                uint8_t ci       = VRAM[ VRAM_addr(colAddr) ];
+                bg_color         = PALETTE[ ci ];
             }
             
             //Draw with logic
@@ -439,16 +450,32 @@ void PPU_cycle(){
             else {
                 //Do sprite 0 hit
                 if(is_sprite_0 && !hit_this_frame && x != 255){
+                    //printf("%d %d %d %d\n", x, y, effective_x, effective_y);
                     PPUSTATUS |= 0b01000000;
                     hit_this_frame = true;
                 }
                 pixel_color = sprite_unpriority ? bg_color : sprite_color;
             }
+            /* if(y == 30 && x == 90){
+                uint8_t tile_addr = VRAM[0x2000 + (3<<5) + 11];
+                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
+                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
+                int palette_index1 = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
+                tile_addr = VRAM[0x2400 + (3<<5) + 11];
+                tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
+                tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
+                int palette_index2 = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
+                //printf("%d %d %d %d %d\n", nametable_index, effective_x>>3,effective_y>>3,palette_index1, palette_index2);
+            } */
             //Set color
             frame_buffer[scanline*SCREEN_WIDTH + x] = pixel_color;// / (((x>>5)%2 != (y>>5)%2)?2:1) / (((x>>4)%2 != (y>>4)%2)?3:1);
         }
         //Fill OAM2 once
         else if(cycles == 257) {
+            /* if(!hit_this_frame && scanline == 239) {
+                //PPUSTATUS |= 0b01000000;
+                //hit_this_frame = true;
+            } */
             int cnt = 0;
             uint y=scanline;
             uint height = sprite_size; 
@@ -471,6 +498,9 @@ void PPU_cycle(){
         if(cycles >= 257 && cycles <= 320){
             oamaddr = 0;
         }
+        if(cycles == 320){
+            x_scroll = hold_x_scroll;
+        }
     }
 
     //Handle VBlank start
@@ -478,6 +508,7 @@ void PPU_cycle(){
         if(NMI_enabled){
             NMI_signal = true;
         }
+        y_scroll = hold_y_scroll;
         PPUSTATUS |= 0b10000000; //enable VBlank
         render_frame();
         if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
@@ -486,6 +517,7 @@ void PPU_cycle(){
     //Handle reset
     else if(scanline == 261){
         if(cycles == 0) {
+            nametable_index = PPUCTRL&0b11;
             PPUSTATUS &= 0b00011111;
         }
         is_odd = !is_odd;
