@@ -4,6 +4,7 @@
 extern uint8_t VRAM[];
 extern bool NMI_signal;
 extern uint8_t mem[];
+extern uint16_t pc;
 extern uint64_t clock_cycle;
 
 /////////////////////////////OAM
@@ -44,6 +45,8 @@ uint8_t read_PPUDATA(){
     return res;
 }
 void write_PPUDATA(uint8_t data){
+    //if(ppuaddr == (0x2000 | (3<<5) | 11)) printf("1 %04X\n", pc);
+    //if(ppuaddr == (0x2400 | (3<<5) | 11)) printf("2 %04X\n", pc);
     VRAM[VRAM_addr(ppuaddr)] = data;
     ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
 }
@@ -495,6 +498,7 @@ void PPU_cycle(){
 
     //Handle VBlank start
     else if(scanline == 241 && cycles == 1){
+        //printf("%02X %02X %02X %02X\n", VRAM[VRAM_addr(0x2000 | 3<<5 | 11)], VRAM[VRAM_addr(0x2400 | 3<<5 | 11)], VRAM[VRAM_addr(0x2800 | 3<<5 | 11)], VRAM[VRAM_addr(0x2C00 | 3<<5 | 11)]);
         if(NMI_enabled){
             NMI_signal = true;
         }
