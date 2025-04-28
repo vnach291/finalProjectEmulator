@@ -45,8 +45,6 @@ uint8_t read_PPUDATA(){
     return res;
 }
 void write_PPUDATA(uint8_t data){
-    //if(ppuaddr == (0x2000 | (3<<5) | 11)) printf("1 %04X\n", pc);
-    //if(ppuaddr == (0x2400 | (3<<5) | 11)) printf("2 %04X\n", pc);
     VRAM[VRAM_addr(ppuaddr)] = data;
     ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
 }
@@ -186,6 +184,8 @@ void render_frame(){
         memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
         SDL_UnlockTexture(texture);
 
+     
+     
     }
     SDL_RenderCopy(renderer, texture, NULL, &destRect);
 
@@ -256,32 +256,69 @@ uint16_t VRAM_addr(uint16_t addr){
     return new_addr;
 }
 
+// uint16_t scrolled_nt_addr(uint8_t x_tile, uint8_t y_tile) {
+//     // wrap into 0..31 / 0..29
+//     if (x_tile >= 32) x_tile %= 32;
+//     if (y_tile >= 30) y_tile %= 30;
+
+//     // which of the 4 nametables
+//     int table_x = (x_tile >> 5) & 1;
+//     int table_y = (y_tile >> 5) & 1;
+//     int nt_bits = (table_y << 1) | table_x;
+
+//     uint16_t base = 0x2000 | (nt_bits << 10);
+//     return base + (y_tile << 5) + x_tile;
+// }
+
 uint16_t scrolled_nt_addr(uint8_t x_tile, uint8_t y_tile) {
-    // wrap into 0..31 / 0..29
-    if (x_tile >= 32) x_tile %= 32;
-    if (y_tile >= 30) y_tile %= 30;
-
-    // which of the 4 nametables
-    int table_x = (x_tile >> 5) & 1;
-    int table_y = (y_tile >> 5) & 1;
-    int nt_bits = (table_y << 1) | table_x;
-
-    uint16_t base = 0x2000 | (nt_bits << 10);
-    return base + (y_tile << 5) + x_tile;
+    uint8_t base_nt = nametable_index;
+    
+    if (x_tile >= 32) {
+        base_nt ^= 0x01;  // Toggle horizontal nametable bit
+    }
+    
+    if (y_tile >= 30) {
+        base_nt ^= 0x02;  // Toggle vertical nametable bit
+    }
+    
+    x_tile %= 32;
+    y_tile %= 30;
+    
+    return 0x2000 | (base_nt << 10) | (y_tile << 5) | x_tile;
 }
 
+// uint16_t scrolled_at_addr(uint8_t x_tile, uint8_t y_tile) {
+//     if (x_tile >= 32) x_tile %= 32;
+//     if (y_tile >= 30) y_tile %= 30;
+//     int table_x = (x_tile >> 5) & 1;
+//     int table_y = (y_tile >> 5) & 1;
+//     int nt_bits  = (table_y << 1) | table_x;
+
+//     uint8_t attr_x = (x_tile & 0x1F) >> 2;
+//     uint8_t attr_y = (y_tile & 0x1F) >> 2;
+
+//     uint16_t base = 0x2000 | (nt_bits << 10) | 0x03C0;
+//     return base + (attr_y << 3) + attr_x;
+// }
+
 uint16_t scrolled_at_addr(uint8_t x_tile, uint8_t y_tile) {
-    if (x_tile >= 32) x_tile %= 32;
-    if (y_tile >= 30) y_tile %= 30;
-    int table_x = (x_tile >> 5) & 1;
-    int table_y = (y_tile >> 5) & 1;
-    int nt_bits  = (table_y << 1) | table_x;
-
-    uint8_t attr_x = (x_tile & 0x1F) >> 2;
-    uint8_t attr_y = (y_tile & 0x1F) >> 2;
-
-    uint16_t base = 0x2000 | (nt_bits << 10) | 0x03C0;
-    return base + (attr_y << 3) + attr_x;
+    uint8_t base_nt = nametable_index;
+    
+    if (x_tile >= 32) {
+        base_nt ^= 0x01;  // Toggle horizontal nametable bit
+    }
+    
+    if (y_tile >= 30) {
+        base_nt ^= 0x02;  // Toggle vertical nametable bit
+    }
+    
+    x_tile %= 32;
+    y_tile %= 30;
+    
+    uint8_t attr_x = x_tile >> 2;  // x_tile / 4
+    uint8_t attr_y = y_tile >> 2;  // y_tile / 4
+    
+    return 0x2000 | (base_nt << 10) | 0x03C0 | (attr_y << 3) | attr_x;
 }
 
 
