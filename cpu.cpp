@@ -74,7 +74,7 @@ void write_mem(uint16_t addr, uint8_t v){
         map_reg|=(v&1)<<4;
         map_reg_i++;
         if(map_reg_i == 5){
-            swap_bank(addr>>13);
+            swap_bank((addr>>13)&0b11);
             map_reg = 0;
             map_reg_i = 0;
         }
@@ -1885,8 +1885,8 @@ void loadROM(std::string file_name){
             VRAM[i] = c;
         }
     }
-    //SNROM
-    if(mapper == 1) {
+    //SxROM
+    else if(mapper == 1) {
         //PRG ROM
         for(int i=0; i<0x4000*prg_size; i++){
             file.get(c);
@@ -1897,7 +1897,8 @@ void loadROM(std::string file_name){
             file.get(c);
             CHR_ROM[i] = c;
         }
-        memcpy(&mem[0x8000], &PRG_ROM[0], sizeof(uint8_t) * 0x8000);
+        memcpy(&mem[0x8000], &PRG_ROM[0x4000*(prg_size-2)], sizeof(uint8_t) * 0x8000);
+        memcpy(&VRAM[0], &CHR_ROM[0], sizeof(uint8_t) * 0x2000);
     }
     //Initialize pc
     pc = read_pair(RES_addr);
