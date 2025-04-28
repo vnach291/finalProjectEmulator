@@ -194,7 +194,8 @@ void setup_PPU(){
         SDL_Quit();
         exit(1);
     }
-
+}
+void set_pattern_table(){
     for(int i=0; i<256; i++){
         for(int j=0; j<128; j++){
             //Read nametable (tile address)
@@ -230,6 +231,11 @@ void render_frame(){
 
         memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
 
+        uint8_t* keys = (uint8_t*)SDL_GetKeyboardState(NULL);
+        if(keys[SDL_SCANCODE_P]) {
+            set_pattern_table();
+            memcpy(frame_ptr, frame_buffert, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
+        }
         SDL_UnlockTexture(texture);
     }
     SDL_RenderCopy(renderer, texture, &srcRect, &destRect);
@@ -271,11 +277,11 @@ uint32_t GRAYS[4] = {
 #define show_left_sprite ((PPUMASK>>2)&1)
 //Address finders
 #define sprite_pattern_address(tile_index, fine_y) \
-    sprite_switch ? /* 8x16 mode */ \
+    (sprite_switch ? /* 8x16 mode */ \
         ((((tile_index&1)<<12) | ((tile_index&0xFE)<<4) | \
         ((fine_y<8) ? fine_y : (fine_y-8)) | \
         ((fine_y>=8) ? 0x10 : 0)) & 0xFFFF) : \
-        ((sprite_pattern_table_index<<12) | (tile_index<<4) | ((fine_y)&0b111)) // normal 8x8 mode
+        ((sprite_pattern_table_index<<12) | (tile_index<<4) | ((fine_y)&0b111))) // normal 8x8 mode
 
 
 #define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
