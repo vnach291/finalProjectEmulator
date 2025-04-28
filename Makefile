@@ -7,7 +7,7 @@ SOURCES = $(wildcard *.cpp)
 OBJECTS = $(SOURCES:.cpp=.o)
 
 # Executable name
-TARGET = emulator
+TARGET = emulator.exe
 
 # SDL linker flags
 LDFLAGS = `sdl2-config --libs`

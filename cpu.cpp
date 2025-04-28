@@ -5,6 +5,13 @@
 #define SCREEN true
 #define SAFEEXIT {SDL_DestroyRenderer(renderer); SDL_DestroyWindow(window); SDL_Quit(); exit(0);}
 
+/////////////////////////////Mappers
+uint8_t mapper;
+uint8_t map_reg;
+int map_reg_i;
+uint8_t bank_regs[4];
+void swap_bank(uint8_t i);
+
 /////////////////////////////Clock
 uint64_t clock_cycle = 7;
 int inst_cycles = 0;
@@ -26,7 +33,6 @@ extern bool w;
 extern int cycles;
 extern int scanline;
 extern bool DEBUG_SCREEN;
-extern int mirroring_layout;
 extern uint16_t ppuaddr;
 
 /////////////////////////////Registers/Flags
@@ -57,12 +63,23 @@ uint16_t mirrored_addr(uint16_t addr){
 }
 void write_mem(uint16_t addr, uint8_t v){
     addr = mirrored_addr(addr);
-<<<<<<< HEAD
-    //if(addr == 0x2000) printf("%04X %d %d %d\n", pc, scanline, cycles, v&0b11);
-=======
-    //if(addr == 0x2000) printf("%04X %d %d %08b\n", pc, scanline, cycles, v);
->>>>>>> origin/josh
-    if(addr >= 0x8000) return;
+    //SNROM
+    if(mapper == 1 && addr >= 0x8000){
+        if(v>>7){
+            map_reg = 0;
+            map_reg_i = 0;
+            return;
+        }
+        map_reg>>=1;
+        map_reg|=(v&1)<<4;
+        map_reg_i++;
+        if(map_reg_i == 5){
+            swap_bank((addr>>13)&0b11);
+            map_reg = 0;
+            map_reg_i = 0;
+        }
+        return;
+    }
     switch(addr){
         case 0x2000:
             //PPUCTRL
@@ -131,6 +148,51 @@ uint8_t read_mem(uint16_t addr){
             break;
     }
     return res;
+}
+
+/////////////////////////////Bank switching
+uint8_t PRG_ROM[0x40000];
+uint8_t CHR_ROM[0x20000];
+#define CHR_BANK_MODE (bank_regs[0]>>4)
+#define PRG_BANK_MODE ((bank_regs[0]>>2)&0b11)
+void swap_bank(uint8_t i){
+    bank_regs[i] = map_reg;
+    switch(i){
+        case 1:
+            if(CHR_BANK_MODE == 0){
+                //8KB
+                memcpy(&VRAM[0], &CHR_ROM[(map_reg>>1)*0x2000], sizeof(uint8_t) * 0x2000);
+            } else {
+                //4KB
+                memcpy(&VRAM[0], &CHR_ROM[map_reg*0x1000], sizeof(uint8_t) * 0x1000);
+            }
+            break;
+        case 2:
+            if(CHR_BANK_MODE == 0){
+                //8KB (ignored)
+            } else {
+                //4KB
+                memcpy(&VRAM[0x1000], &CHR_ROM[map_reg*0x1000], sizeof(uint8_t) * 0x1000);
+            }
+            break;
+        case 3:
+            switch(PRG_BANK_MODE){
+                case 0:
+                case 1:
+                    //32KB
+                    memcpy(&mem[0x8000], &PRG_ROM[(map_reg>>2)*0x8000], sizeof(uint8_t) * 0x8000);
+                    break;
+                case 2:
+                    //Fix First
+                    memcpy(&mem[0xC000], &PRG_ROM[map_reg*0x4000], sizeof(uint8_t) * 0x4000);
+                    break;
+                case 3:
+                    //Fix Last
+                    memcpy(&mem[0x8000], &PRG_ROM[map_reg*0x4000], sizeof(uint8_t) * 0x4000);
+                    break;
+            }
+            break;
+    }
 }
 
 //Interrupt signals
@@ -1826,31 +1888,51 @@ void loadROM(std::string file_name){
         exit(1);
     }
     char c;
-    uint8_t prog_size;
-    //Header (skipped)
+    uint8_t prg_size;
+    uint8_t chr_size;
+    //Header
     for(int i=0; i<0x10; i++){
         file.get(c);
-        if(i==4) prog_size = c;
-        if(i==6) mirroring_layout = c&1;
-    }
-    //Program ROM
-    if(prog_size <= 1){
-        for(int i=0; i<0x4000; i++){
-            file.get(c);
-            mem[0xc000+i] = c;
+        if(i==4) prg_size = c;
+        if(i==5) chr_size = c;
+        if(i==6) {
+            bank_regs[0] = 2+(c&1);
+            mapper = c>>4;
         }
-    } else {
-        for(int i=0; i<0x8000; i++){
+        if(i==7) {
+            mapper |= (c>>4)<<4;
+        }
+    }
+    //NROM
+    if(mapper == 0) {
+        //PRG ROM
+        for(int i=0; i<0x4000*prg_size; i++){
             file.get(c);
             mem[0x8000+i] = c;
         }
+        if(prg_size == 1) memcpy(&mem[0xC000], &mem[0x8000], sizeof(uint8_t) * 0x4000);
+        
+        //CHR ROM
+        for(int i=0; i<0x2000; i++){
+            file.get(c);
+            VRAM[i] = c;
+        }
     }
-    //Character ROM
-    for(int i=0; i<0x2000; i++){
-        file.get(c);
-        VRAM[i] = c;
+    //SxROM
+    else if(mapper == 1) {
+        //PRG ROM
+        for(int i=0; i<0x4000*prg_size; i++){
+            file.get(c);
+            PRG_ROM[i] = c;
+        }
+        //Character ROM
+        for(int i=0; i<0x2000*chr_size; i++){
+            file.get(c);
+            CHR_ROM[i] = c;
+        }
+        memcpy(&mem[0x8000], &PRG_ROM[0x4000*(prg_size-2)], sizeof(uint8_t) * 0x8000);
+        memcpy(&VRAM[0], &CHR_ROM[0], sizeof(uint8_t) * 0x2000);
     }
-    if(prog_size == 1) memcpy(&mem[0x8000], &mem[0xc000], sizeof(uint8_t) * 0x4000);
     //Initialize pc
     pc = read_pair(RES_addr);
 }
