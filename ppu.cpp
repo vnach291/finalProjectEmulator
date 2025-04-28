@@ -4,6 +4,7 @@
 extern uint8_t VRAM[];
 extern bool NMI_signal;
 extern uint8_t mem[];
+extern uint8_t bank_regs[];
 extern uint16_t pc;
 extern uint64_t clock_cycle;
 
@@ -133,7 +134,6 @@ const int SCREEN_HEIGHT = 240;
 const int SCREEN_SCALE = 3;
 int cycles = 0;
 int scanline = 261;
-int mirroring_layout;
 
 /**
  * Note:
@@ -284,15 +284,29 @@ uint32_t GRAYS[4] = {
 #define nametable_address (0x2000 | (v & 0x0FFF))
 #define attribute_address (0x23C0 | (v & 0x0C00) | ((v>>4) & 0x38) | ((v>>2) & 0x07))
 #define color_address(palette, i, type) (0x3f00 | ((type)<<4) | ((palette)<<2) | (i))
+
+/////////////////////////////Mirroring
+#define mirroring_layout (bank_regs[0]&0b11)
 uint16_t VRAM_addr(uint16_t addr){
     uint16_t new_addr = addr;
-    if(mirroring_layout == 0){
-        //horizontal
-        if(addr >= 0x2400 && addr < 0x2800) new_addr = addr-0x400;
-        if(addr >= 0x2C00 && addr < 0x3000) new_addr = addr-0x400;
-    } else {
-        //vertical
-        if(addr >= 0x2800 && addr < 0x3000) new_addr = addr-0x800;
+    switch(mirroring_layout){
+        case 0:
+            //one-screen low
+            if(addr >= 0x2400 && addr <= 0x3000) new_addr = 0x2000 | (addr%0x400);
+            break;
+        case 1:
+            //one-screen high
+            if(addr >= 0x2000 && addr <= 0x3000) new_addr = 0x2400 | (addr%0x400);
+            break;
+        case 2:
+            //horizontal
+            if(addr >= 0x2400 && addr < 0x2800) new_addr = addr-0x400;
+            if(addr >= 0x2C00 && addr < 0x3000) new_addr = addr-0x400;
+            break;
+        case 3:
+            //vertical
+            if(addr >= 0x2800 && addr < 0x3000) new_addr = addr-0x800;
+            break;
     }
     if(addr >= 0x3F20) {
         new_addr = 0x3F00 | (addr%0x20);
