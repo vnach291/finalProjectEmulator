@@ -383,7 +383,7 @@ void PPU_cycle(){
             if(should_render_bg == 1 && (cycles > 8 || show_left_bg==1)){
                 //Read nametable (tile address)
                 int dot = cycles-1;
-                uint8_t tile_addr = VRAM[VRAM_addr(nametable_address+(dot%8>7-x?1:0))];
+                uint8_t tile_addr = VRAM[VRAM_addr(nametable_address)];
 
                 //Read pattern (using tile address)
                 uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, (v&0x7000)>>12)];
@@ -422,23 +422,11 @@ void PPU_cycle(){
             else {
                 //Do sprite 0 hit
                 if(is_sprite_0 && !hit_this_frame && x != 255){
-                    //printf("%d %d %d %d\n", x, y, effective_x, effective_y);
                     PPUSTATUS |= 0b01000000;
                     hit_this_frame = true;
                 }
                 pixel_color = sprite_unpriority ? bg_color : sprite_color;
             }
-            /* if(y == 30 && x == 90){
-                uint8_t tile_addr = VRAM[0x2000 + (3<<5) + 11];
-                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
-                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
-                int palette_index1 = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
-                tile_addr = VRAM[0x2400 + (3<<5) + 11];
-                tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
-                tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
-                int palette_index2 = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
-                //printf("%d %d %d %d %d\n", nametable_index, effective_x>>3,effective_y>>3,palette_index1, palette_index2);
-            } */
             //Set color
             frame_buffer[scanline*SCREEN_WIDTH + cycles-1] = pixel_color;// / (((x>>5)%2 != (y>>5)%2)?2:1) / (((x>>4)%2 != (y>>4)%2)?3:1);
         }
@@ -474,7 +462,6 @@ void PPU_cycle(){
 
     //Handle VBlank start
     else if(scanline == 241 && cycles == 1){
-        //printf("%02X %02X %02X %02X\n", VRAM[VRAM_addr(0x2000 | 3<<5 | 11)], VRAM[VRAM_addr(0x2400 | 3<<5 | 11)], VRAM[VRAM_addr(0x2800 | 3<<5 | 11)], VRAM[VRAM_addr(0x2C00 | 3<<5 | 11)]);
         if(NMI_enabled){
             NMI_signal = true;
         }
