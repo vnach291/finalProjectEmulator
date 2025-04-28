@@ -1,7 +1,7 @@
 #pragma once
 
 #include <chrono>
-#include <SDL.h>
+#include <SDL2/SDL.h>
 #include <iostream>
 #include <algorithm>
 #include "cpu.h"
@@ -17,9 +17,5 @@ uint8_t read_OAMDATA();
 void write_OAMDATA(uint8_t data);
 void write_OAMDMA(uint8_t data);
 void write_PPUSCROLL(uint8_t data);
-<<<<<<< HEAD
-uint16_t VRAM_addr(uint16_t addr);
-=======
 void write_PPUCTRL(uint8_t data);
 uint16_t VRAM_addr(uint16_t addr);
->>>>>>> origin/josh

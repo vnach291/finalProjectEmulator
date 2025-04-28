@@ -48,7 +48,7 @@ uint8_t D;
 uint8_t I = 1;
 uint8_t Z;
 uint8_t C;
-#define SR ((N<<7) + (V<<6) + (1<<5) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
+#define SR ((N<<7) + (V<<6) + (B<<4) + (D<<3) + (I<<2) + (Z<<1) + (C<<0))
 
 /////////////////////////////Memory (64KB)
 uint8_t mem[0x10000];
@@ -238,86 +238,18 @@ void set_NZ(uint8_t val){
     N = (val>>7) ? 1 : 0;
     Z = (val!=0) ? 0 : 1;
 }
-// void do_sbc(uint8_t value) {
-//     uint16_t temp = A - value - (1 - C);
-//     uint8_t result = temp & 0xFF;
-
-//     // Set carry if no borrow occurred (A >= M + (1-C))
-//     C = (temp < 0x100) ? 1 : 0;
-
-//     // Set overflow if sign bit of A and result differ and A and M differ in sign
-//     V = ((A ^ result) & (A ^ value) & 0x80) ? 1 : 0;
-
-//     A = result;
-//     set_NZ(A);
-// }
-
-
 void do_sbc(uint8_t value) {
-    if (D) {  // Decimal mode
-        uint16_t temp = A - value - (1 - C);
-        uint8_t al = (A & 0x0F) - (value & 0x0F) - (1 - C);
-        
-        if (al & 0x10) {
-            al = ((al - 6) & 0x0F) | ((al & 0xF0) - 0x10);
-        }
-        
-        uint8_t ah = (A >> 4) - (value >> 4) - ((al & 0x10) != 0);
-        if (ah & 0x10) {
-            ah = (ah - 6) & 0x0F;
-        }
-        
-        C = (temp < 0x100) ? 1 : 0;
-        
-        V = ((A ^ value) & (A ^ temp) & 0x80) ? 1 : 0;
-        
-        A = (ah << 4) | (al & 0x0F);
-        set_NZ(A);
+    uint16_t temp = A - value - (1 - C);
+    uint8_t result = temp & 0xFF;
 
-    } else { 
-        uint16_t temp = A - value - (1 - C);
-        uint8_t result = temp & 0xFF;
+    // Set carry if no borrow occurred (A >= M + (1-C))
+    C = (temp < 0x100) ? 1 : 0;
 
-        C = (temp < 0x100) ? 1 : 0;
+    // Set overflow if sign bit of A and result differ and A and M differ in sign
+    V = ((A ^ result) & (A ^ value) & 0x80) ? 1 : 0;
 
-        V = ((A ^ result) & (A ^ value) & 0x80) ? 1 : 0;
-
-        A = result;
-        set_NZ(A);
-    }
-}
-
-void do_adc(uint8_t operand) {
-    uint8_t original_A = A;
-    
-    if (D) {  // Decimal mode
-        uint8_t lo_sum = (A & 0x0F) + (operand & 0x0F) + C;
-        uint8_t hi_sum = (A >> 4) + (operand >> 4);
-        
-        if (lo_sum > 9) {
-            lo_sum += 6;
-            hi_sum++;
-        }
-        
-        uint16_t bin_sum = original_A + operand + C;
-        C = (bin_sum > 0xFF) ? 1 : 0;
-        V = ((~(original_A ^ operand) & (original_A ^ bin_sum)) & 0x80) >> 7;
-        
-        
-        if (hi_sum > 9) {
-            hi_sum += 6;
-            C = 1;
-        }
-        
-        A = ((hi_sum & 0x0F) << 4) | (lo_sum & 0x0F);
-        set_NZ(A);
-    } else {  // Binary mode
-        uint16_t result = original_A + operand + C;
-        C = (result > 0xff) ? 1 : 0;
-        A = result & 0xff;
-        V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
-        set_NZ(A);
-    }
+    A = result;
+    set_NZ(A);
 }
 
 /////////////////////////////Addressing 
@@ -352,12 +284,11 @@ uint16_t get_X_ind(){
     return (read_mem((read_mem(pc+1) + X + 1) & 0xFF)<<8) | read_mem((read_mem(pc+1) + X) & 0xFF);
 }
 uint16_t get_ind_Y(){
-    uint8_t opcode = read_mem(pc); 
+    //indirect Y post-index
     uint16_t res1 = (read_mem((read_mem(pc+1) + 1) & 0xFF)<<8) | read_mem(read_mem(pc+1));
     uint16_t res2 = res1 + Y;
-    
-    if(res1>>8 != res2>>8 && opcode != 0x91) {
-        read_mem((res1 & 0xFF00) | (res2 & 0xFF)); // Dummy read
+    if(res1>>8 != res2>>8) {
+        read_mem((res1 & 0xFF00) | (res2 & 0xFF));
         inc_cycle(1);
     }
     return res2;
@@ -366,26 +297,22 @@ uint16_t get_abs(){
     //absolute
     return (read_mem(pc+2)<<8) | read_mem(pc+1);
 }
-
 uint16_t get_abs_X(){
-    uint8_t opcode = read_mem(pc); 
+    //absolute X index
     uint16_t res1 = (read_mem(pc+2)<<8) | read_mem(pc+1);
-    uint16_t res2 = res1 + X;    
-    if(res1>>8 != res2>>8 && opcode != 0x9D) {
-        read_mem((res1 & 0xFF00) | (res2 & 0xFF)); // Dummy read
+    uint16_t res2 = res1 + X;
+    if(mem[pc] == 0x9D) read_mem((res1 & 0xFF00) | (res2 & 0xFF));
+    if(res1>>8 != res2>>8) {
+        read_mem((res1 & 0xFF00) | (res2 & 0xFF));
         inc_cycle(1);
     }
     return res2;
 }
-
 uint16_t get_abs_Y(){
-    uint8_t opcode = read_mem(pc); 
+    //absolute Y index
     uint16_t res1 = (read_mem(pc+2)<<8) | read_mem(pc+1);
     uint16_t res2 = res1 + Y;
-    
-    if(res1>>8 != res2>>8 && opcode != 0x99) {
-        inc_cycle(1);
-    }
+    if(res1>>8 != res2>>8) inc_cycle(1);
     return res2;
 }
 
@@ -397,7 +324,7 @@ void BRK(int mode){
             inc_cycle(7);
             I = 1;
             push_pair(pc+2);
-            push(SR | 0x30);  // Set both B flag (bit 4) and bit 5
+            push(SR | 0b00010000);
             pc = read_pair(IRQ_addr);
             break;
         case 2:
@@ -974,49 +901,89 @@ void ADC(int mode){
         case 0:
             //ADC X,ind
             inc_cycle(6);
-            do_adc(read_mem(get_X_ind()));
+            operand = read_mem(get_X_ind());
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 2;
             break;
         case 1:
             //ADC zpg
             inc_cycle(3);
-            do_adc(read_mem(get_zpg()));
+            operand = read_mem(get_zpg());
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 2;
             break;
         case 2:
             //ADC #
             inc_cycle(2);
-            do_adc(read_mem(pc+1));
+            operand = read_mem(pc+1);
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 2;
             break;
         case 3:
             //ADC abs
             inc_cycle(4);
-            do_adc(read_mem(get_abs()));
+            operand = read_mem(get_abs());
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 3;
             break;
         case 4:
             //ADC ind,Y
             inc_cycle(5);
-            do_adc(read_mem(get_ind_Y()));
+            operand = read_mem(get_ind_Y());
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 2;
             break;
         case 5:
             //ADC zpg,X
             inc_cycle(4);
-            do_adc(read_mem(get_zpg_X()));
+            operand = read_mem(get_zpg_X());
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 2;
             break;
         case 6:
             //ADC abs,Y
             inc_cycle(4);
-            do_adc(read_mem(get_abs_Y()));
+            operand = read_mem(get_abs_Y());
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 3;
             break;
         case 7:
             //ADC abs,X
             inc_cycle(4);
-            do_adc(read_mem(get_abs_X()));
+            operand = read_mem(get_abs_X());
+            result = original_A + operand + C;
+            C = (result > 0xff) ? 1 : 0;
+            A = result & 0xff;
+            V = ((~(original_A ^ operand) & (original_A ^ A)) & 0x80) >> 7;
+            set_NZ(A);
             pc += 3;
             break;
     }
@@ -1028,6 +995,7 @@ void STA(int mode){
             inc_cycle(6);
             write_mem(get_X_ind(), A);
             pc = pc+2;
+            break;
             break;
         case 1:
             //STA zpg
@@ -1850,8 +1818,7 @@ int run(){
 
             //Update stack
             push_pair(pc);
-            //push(SR);
-            push((SR & ~0x10) | 0x20);
+            push(SR);
             I = 1;
 
             //Do jump

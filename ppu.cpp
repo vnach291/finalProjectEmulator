@@ -229,10 +229,8 @@ void render_frame(){
         uint32_t* frame_ptr = (uint32_t*)frame_rendered;
 
         memcpy(frame_ptr, frame_buffer, SCREEN_WIDTH * SCREEN_HEIGHT * 4);
-        SDL_UnlockTexture(texture);
 
-     
-     
+        SDL_UnlockTexture(texture);
     }
     SDL_RenderCopy(renderer, texture, &srcRect, &destRect);
 
@@ -475,9 +473,6 @@ void PPU_cycle(){
         if(cycles >= 257 && cycles <= 320){
             oamaddr = 0;
         }
-        if(cycles == 320){
-            x_scroll = hold_x_scroll;
-        }
     }
 
     //Handle VBlank start
@@ -485,7 +480,6 @@ void PPU_cycle(){
         if(NMI_enabled){
             NMI_signal = true;
         }
-        y_scroll = hold_y_scroll;
         PPUSTATUS |= 0b10000000; //enable VBlank
         render_frame();
         if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
@@ -494,7 +488,6 @@ void PPU_cycle(){
     //Handle reset
     else if(scanline == 261){
         if(cycles == 0) {
-            nametable_index = PPUCTRL&0b11;
             PPUSTATUS &= 0b00011111;
         }
         is_odd = !is_odd;
