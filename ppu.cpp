@@ -145,7 +145,8 @@ int mirroring_layout;
 /////////////////////////////Handle Rendering
 SDL_Window* window;
 SDL_Texture* texture;
-SDL_Rect destRect = {0, 0, SCREEN_WIDTH*SCREEN_SCALE, SCREEN_HEIGHT*SCREEN_SCALE};
+SDL_Rect srcRect = {0, 8, SCREEN_WIDTH, (SCREEN_HEIGHT-16)};
+SDL_Rect destRect = {0, 0, SCREEN_WIDTH*SCREEN_SCALE, (SCREEN_HEIGHT-16)*SCREEN_SCALE};
 SDL_Renderer* renderer;
 uint32_t frame_buffer[SCREEN_WIDTH*SCREEN_HEIGHT];
 uint32_t frame_buffert[SCREEN_WIDTH*SCREEN_HEIGHT];
@@ -164,7 +165,7 @@ void setup_PPU(){
     //Create window
     window = SDL_CreateWindow("emuLATER",
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        SCREEN_WIDTH * SCREEN_SCALE, SCREEN_HEIGHT * SCREEN_SCALE, SDL_WINDOW_SHOWN);
+        SCREEN_WIDTH * SCREEN_SCALE, (SCREEN_HEIGHT-16) * SCREEN_SCALE, SDL_WINDOW_SHOWN);
 
     if (!window) {
         printf("unable to create window\n");
@@ -231,7 +232,7 @@ void render_frame(){
 
         SDL_UnlockTexture(texture);
     }
-    SDL_RenderCopy(renderer, texture, NULL, &destRect);
+    SDL_RenderCopy(renderer, texture, &srcRect, &destRect);
 
     //Do render
     SDL_RenderPresent(renderer);
