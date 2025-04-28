@@ -10,6 +10,7 @@
         "type_traits": "cpp",
         "utility": "cpp",
         "variant": "cpp",
-        "numbers": "cpp"
+        "numbers": "cpp",
+        "string_view": "cpp"
     }
 }

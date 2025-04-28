@@ -13,6 +13,9 @@ uint8_t OAM2[0x20];
 
 /////////////////////////////Internal regs
 bool w = false;
+uint16_t t;
+uint16_t v;
+uint8_t x;
 
 /////////////////////////////Special Addresses
 #define PPUCTRL mem[0x2000]
@@ -20,35 +23,72 @@ bool w = false;
 #define PPUSTATUS mem[0x2002]
 #define OAMDMA mem[0x4014]
 
+/////////////////////////////Increment handling
+//Note: formulas taken from https://www.nesdev.org/wiki/PPU_scrolling#PPU_internal_registers
+bool is_render;
+void inc_x(){
+    if((v&0x1F) == 31){
+        v &= ~0x1F;
+        v ^=0x400;
+    } else {
+        v++;
+    }
+}
+void inc_y(){
+    if((v&0x7000) != 0x7000){
+        v += 0x1000;
+    } else {
+        v &= ~0x7000;
+        int y = (v & 0x03E0) >> 5;
+        if(y == 29){
+            y = 0;
+            v ^= 0x0800;
+        } else if (y == 31){
+            y = 0;
+        } else {
+            y += 1;
+        }
+        v = (v & ~0x03E0) | (y<<5);  
+    }
+}
+void inc_v(){
+    if(!is_render){
+        v += 1<<(((PPUCTRL>>2)&1)*5);
+    } else {
+        inc_x();
+        inc_y();
+    }
+}
+
 /////////////////////////////Special Address Handling
 //PPU mapping
-uint16_t ppuaddr;
 void write_PPUADDR(uint8_t data){
     if(!w) {
-        ppuaddr = (ppuaddr & 0x00ff) | (((uint16_t)data)<<8);
+        t &= ~0xFF00;
+        t |= (data&0x3F)<<8;
     } else {
-        ppuaddr = (ppuaddr & 0xff00) | ((uint16_t)data);
+        t &= ~0xFF;
+        t |= data;
+        v = t;
     }
     w = !w;
 }
 uint8_t read_PPUDATA_buffer = 0;
 uint8_t read_PPUDATA(){
-    if(ppuaddr >= 0x3F00){
-        read_PPUDATA_buffer = VRAM[ppuaddr];
-        uint8_t res = VRAM[VRAM_addr(ppuaddr)];
-        ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
+    if(v >= 0x3F00){
+        read_PPUDATA_buffer = VRAM[v];
+        uint8_t res = VRAM[VRAM_addr(v)];
+        inc_v();
         return res;
     }
     uint8_t res = read_PPUDATA_buffer;
-    read_PPUDATA_buffer = VRAM[VRAM_addr(ppuaddr)];
-    ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
+    read_PPUDATA_buffer = VRAM[VRAM_addr(v)];
+    inc_v();
     return res;
 }
 void write_PPUDATA(uint8_t data){
-    //if(ppuaddr == (0x2000 | (3<<5) | 11)) printf("1 %04X\n", pc);
-    //if(ppuaddr == (0x2400 | (3<<5) | 11)) printf("2 %04X\n", pc);
-    VRAM[VRAM_addr(ppuaddr)] = data;
-    ppuaddr += 1<<(((PPUCTRL>>2)&1)*5);
+    VRAM[VRAM_addr(v)] = data;
+    inc_v();
 }
 //OAM mapping
 uint16_t oamaddr;
@@ -67,17 +107,21 @@ void write_OAMDMA(uint8_t data){
     memcpy(&OAM[oamaddr], &mem[data<<8], 256 * sizeof(uint8_t));
 }
 //Scroll handling
-uint16_t hold_x_scroll;
-uint16_t hold_y_scroll;
-uint16_t x_scroll;
-uint16_t y_scroll;
 void write_PPUSCROLL(uint8_t data){
     if(!w) {
-        hold_x_scroll = data;
+        t &= ~0x1F;
+        t |= data>>3;
+        x = data & 0b111;
     } else {
-        hold_y_scroll = data;
+        t &= ~0x73E0;
+        t |= (data>>3)<<5;
+        t |= (data&0b111)<<12;
     }
     w = !w;
+}
+void write_PPUCTRL(uint8_t data){
+    t &= ~0xC00;
+    t |= (data&0b11)<<10;
 }
 
 /////////////////////////////Tracking vars
@@ -88,7 +132,7 @@ const int SCREEN_WIDTH = 256;
 const int SCREEN_HEIGHT = 240;
 const int SCREEN_SCALE = 3;
 int cycles = 0;
-int scanline = 0;
+int scanline = 261;
 int mirroring_layout;
 
 /**
@@ -217,7 +261,6 @@ uint32_t GRAYS[4] = {
 //Reg interpreters
 #define sprite_pattern_table_index ((PPUCTRL>>3)&1)
 #define bg_pattern_table_index ((PPUCTRL>>4)&1)
-int nametable_index = 0;
 #define NMI_enabled (PPUCTRL>>7)
 #define should_render_sprite ((PPUMASK>>4)&1)
 #define should_render_bg ((PPUMASK>>3)&1)
@@ -226,7 +269,6 @@ int nametable_index = 0;
 #define show_left_bg ((PPUMASK>>1)&1)
 #define show_left_sprite ((PPUMASK>>2)&1)
 //Address finders
-//#define sprite_pattern_address(i, fine_y) ((sprite_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
 #define sprite_pattern_address(tile_index, fine_y) \
     sprite_switch ? /* 8x16 mode */ \
         ((((tile_index&1)<<12) | ((tile_index&0xFE)<<4) | \
@@ -234,10 +276,12 @@ int nametable_index = 0;
         ((fine_y>=8) ? 0x10 : 0)) & 0xFFFF) : \
         ((sprite_pattern_table_index<<12) | (tile_index<<4) | ((fine_y)&0b111)) // normal 8x8 mode
 
+
 #define bg_pattern_address(i, fine_y) ((bg_pattern_table_index<<12) | (i<<4) | ((fine_y)&0b111))
-//#define nametable_address(x, y) ((0x2000 | (nametable_index<<10)) + (((y)<<5) | (x)))
-//#define attribute_address(x, y) ((0x2000 | (nametable_index<<10)) + (0x3c0) + (((y)<<3) | (x)))
-#define attribute_palette_index(dat, i) (((dat)>>((i)<<1))&0b11)
+#define attribute_palette_index(dat, i) (((dat)>>((i)<<1))&0b11)        
+//Note: the following two macros were taken from https://www.nesdev.org/wiki/PPU_scrolling#PPU_internal_registers
+#define nametable_address (0x2000 | (v & 0x0FFF))
+#define attribute_address (0x23C0 | (v & 0x0C00) | ((v>>4) & 0x38) | ((v>>2) & 0x07))
 #define color_address(palette, i, type) (0x3f00 | ((type)<<4) | ((palette)<<2) | (i))
 uint16_t VRAM_addr(uint16_t addr){
     uint16_t new_addr = addr;
@@ -255,76 +299,6 @@ uint16_t VRAM_addr(uint16_t addr){
     if(new_addr == 0x3F10) new_addr = 0x3F00;
     return new_addr;
 }
-uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
-    uint16_t base = (0x2000 | (nametable_index<<10));
-    if(mirroring_layout == 0){
-        //horizontal
-        if(x >= 32) {
-            x%=32;
-        }
-        if(y >= 30) {
-            y%=30;
-            if(nametable_index&0b10) {
-                base -= 0x800;
-            } else {
-                base += 0x800;
-            }
-        }
-    } else {
-        //vertical
-        if(x >= 32) {
-            x%=32;
-            if(nametable_index&0b11) {
-                base -= 0x400;
-            } else {
-                base += 0x400;
-            }
-        }
-        if(y >= 30) {
-            y%=30;
-        }
-    }
-    return base | (y<<5) | x;
-}
-uint16_t scrolled_at_addr(uint8_t x, uint8_t y){
-    bool post_y = y%2 == 1;
-    x>>=1;
-    y>>=1;
-    uint16_t base = (0x2000 | (nametable_index<<10));
-    if(mirroring_layout == 0){
-        //horizontal
-        if(x >= 8) {
-            x%=8;
-        }
-        if(y >= 8) {
-            y%=8;
-            if(nametable_index&0b10) {
-                base -= 0x800;
-            } else {
-                base += 0x800;
-            }
-        }
-    } else {
-        //vertical
-        if(x >= 8) {
-            x%=8;
-            if(nametable_index&0b01) {
-                base -= 0x400;
-            } else {
-                base += 0x400;
-            }
-        }
-        if(y >= 8) {
-            y%=8;
-        }
-    }
-    bool special_wrap = false;
-    /* if(y==7 && post_y) {
-        y = 0;
-        special_wrap = true;
-    } */
-    return base + 0x3c0 + ((y<<3) | x) + (special_wrap?post_y<<2:0);
-}
 
 /////////////////////////////Run PPU
 bool hit_this_frame;
@@ -337,23 +311,27 @@ void PPU_cycle(){
         cycles = 0;
         scanline++;
     }
+
+    //Determine whether rendering
+    if((scanline >=0 && scanline <= 239) || scanline == 261){
+        is_render = should_render_bg || should_render_sprite;
+    } else {
+        is_render = false;
+    }
     
     //Handle draw to buffer
     if(scanline >= 0 && scanline <= 239){
         //Render
         if(cycles >= 1 && cycles <= 256){
-            uint x = cycles-1;
-            uint effective_x = x+x_scroll;
-            uint y=scanline;
-            uint effective_y = y+y_scroll;
             //Get sprite pixel
             uint32_t sprite_color;
             bool sprite_transparent = true;
             bool sprite_unpriority;
             bool is_sprite_0;
 
-            if(should_render_sprite == 1 && scanline > 0 && (x >= 8 || show_left_sprite==1)){
-                y--;
+            if(should_render_sprite == 1 && scanline > 0 && (cycles > 8 || show_left_sprite==1)){
+                uint x = cycles-1;
+                uint y = scanline-1;
                 //Read from OAM2
                 for(int i=0; i<8; i++){
                     //Read attribute
@@ -397,25 +375,26 @@ void PPU_cycle(){
                         break;
                     }
                 }
-                y++;
             }
             
             //Get bg pixel
             uint32_t bg_color;
             bool bg_transparent = true;
-            if(should_render_bg == 1 && (x >= 8 || show_left_bg==1)){
+            if(should_render_bg == 1 && (cycles > 8 || show_left_bg==1)){
                 //Read nametable (tile address)
-                uint8_t tile_addr = VRAM[VRAM_addr(scrolled_nt_addr(effective_x>>3, effective_y>>3))];
+                int dot = cycles-1;
+                uint8_t tile_addr = VRAM[VRAM_addr(nametable_address+(dot%8>7-x?1:0))];
 
                 //Read pattern (using tile address)
-                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, effective_y%8)];
-                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, effective_y%8)|0b1000];
-                int palette_index = (((tile_data_hi>>(7-effective_x%8))&1)<<1) + ((tile_data_lo>>(7-effective_x%8))&1);
+                uint8_t tile_data_lo = VRAM[bg_pattern_address(tile_addr, (v&0x7000)>>12)];
+                uint8_t tile_data_hi = VRAM[bg_pattern_address(tile_addr, (v&0x7000)>>12)|0b1000];
+                uint8_t fine_x = 7-(dot-x)%8;
+                int palette_index = (((tile_data_hi>>fine_x)&1)<<1) + ((tile_data_lo>>fine_x)&1);
                 if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
-                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>4, effective_y>>4))];
-                int palette_section = (((effective_y>>4)%2)<<1) + ((effective_x>>4)%2);
+                uint8_t palette_data = VRAM[VRAM_addr(attribute_address)];
+                int palette_section = (((v>>5)&1)<<1) + (v&1);
                 int palette_type = (palette_data>>(palette_section<<1))&0b11;
 
                 //Get color
@@ -461,7 +440,7 @@ void PPU_cycle(){
                 //printf("%d %d %d %d %d\n", nametable_index, effective_x>>3,effective_y>>3,palette_index1, palette_index2);
             } */
             //Set color
-            frame_buffer[scanline*SCREEN_WIDTH + x] = pixel_color;// / (((x>>5)%2 != (y>>5)%2)?2:1) / (((x>>4)%2 != (y>>4)%2)?3:1);
+            frame_buffer[scanline*SCREEN_WIDTH + cycles-1] = pixel_color;// / (((x>>5)%2 != (y>>5)%2)?2:1) / (((x>>4)%2 != (y>>4)%2)?3:1);
         }
         //Fill OAM2 once
         else if(cycles == 257) {
@@ -491,9 +470,6 @@ void PPU_cycle(){
         if(cycles >= 257 && cycles <= 320){
             oamaddr = 0;
         }
-        if(cycles == 320){
-            x_scroll = hold_x_scroll;
-        }
     }
 
     //Handle VBlank start
@@ -502,7 +478,6 @@ void PPU_cycle(){
         if(NMI_enabled){
             NMI_signal = true;
         }
-        y_scroll = hold_y_scroll;
         PPUSTATUS |= 0b10000000; //enable VBlank
         render_frame();
         if(DEBUG_SCREEN) std::fill(frame_buffer, frame_buffer+SCREEN_HEIGHT*SCREEN_WIDTH, 0);
@@ -511,7 +486,6 @@ void PPU_cycle(){
     //Handle reset
     else if(scanline == 261){
         if(cycles == 0) {
-            nametable_index = PPUCTRL&0b11;
             PPUSTATUS &= 0b00011111;
         }
         is_odd = !is_odd;
@@ -520,6 +494,25 @@ void PPU_cycle(){
             cycles = 0;
             scanline = 0;
             hit_this_frame = false;
+        }
+    }
+
+    //Handle v
+    if(is_render){
+        if(cycles == 256){
+            inc_y();
+        } else if(cycles == 257){
+            v &= ~0x41F;
+            v |= t&0x41F;
+        }
+        if(cycles <= 256 && cycles%8==0 && cycles!=0){
+            inc_x();
+        }
+        if(scanline == 261){
+            if(cycles >= 280 && cycles <= 304){
+                v &= 0x41F;
+                v |= t&~0x41F;
+            }
         }
     }
 }

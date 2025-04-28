@@ -27,6 +27,7 @@ extern int cycles;
 extern int scanline;
 extern bool DEBUG_SCREEN;
 extern int mirroring_layout;
+extern uint16_t ppuaddr;
 
 /////////////////////////////Registers/Flags
 uint16_t pc;
@@ -56,9 +57,13 @@ uint16_t mirrored_addr(uint16_t addr){
 }
 void write_mem(uint16_t addr, uint8_t v){
     addr = mirrored_addr(addr);
-    //if(addr == 0x2000) printf("%04X %d %d %d\n", pc, scanline, cycles, v&0b11);
+    //if(addr == 0x2000) printf("%04X %d %d %08b\n", pc, scanline, cycles, v);
     if(addr >= 0x8000) return;
     switch(addr){
+        case 0x2000:
+            //PPUCTRL
+            write_PPUCTRL(v);
+            break;
         case 0x2002:
             //PPUSTATUS
             return;
