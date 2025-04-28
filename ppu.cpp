@@ -283,31 +283,25 @@ uint16_t scrolled_nt_addr(uint8_t x, uint8_t y){
     }
     return base | (y<<5) | x;
 }
-uint16_t scrolled_at_addr(uint8_t x, uint8_t y) {
-    uint16_t base = 0x2000;
-    
-    if (mirroring_layout == 0) { // Horizontal mirroring
-        if (y >= 240) {
-            base ^= 0x800;
-            y -= 240;
-        }
-        if (x >= 256) {
-            base ^= 0x400;
-            x -= 256;
-        }
-    } else { // Vertical mirroring
-        if (x >= 256) {
-            base ^= 0x800;
-            x -= 256;
-        }
-        if (y >= 240) {
-            y -= 240;
-        }
+uint16_t scrolled_at_addr(uint8_t tile_x, uint8_t tile_y) {
+    uint8_t attr_x = tile_x >> 2;
+    uint8_t attr_y = tile_y >> 2;
+
+    int nt_x = (tile_x >> 5) & 1;
+    int nt_y = (tile_y >> 5) & 1;
+    int effective_nametable = (nt_y << 1) | nt_x;
+
+    uint16_t nt_base;
+    if (mirroring_layout == 0) {
+        //horizontal mirroring
+        nt_base = 0x2000 | ((effective_nametable & 1) << 10);
+    } else {
+        //vertical mirroring
+        nt_base = 0x2000 | (effective_nametable << 10);
     }
 
-    return base + 0x3C0 + ((y >> 5) << 3) + (x >> 5);
+    return nt_base + 0x3C0 + (attr_y * 8 + attr_x);
 }
-
 
 
 /////////////////////////////Run PPU
@@ -398,9 +392,11 @@ void PPU_cycle(){
                 if(palette_index != 0) bg_transparent = false;
 
                 //Read attribute + index within
-                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x, effective_y))];
-                int palette_section = (((effective_y >> 4) & 2) | ((effective_x >> 4) & 1));
-                int palette_type = (palette_data >> (palette_section * 2)) & 0b11;
+                uint8_t palette_data = VRAM[VRAM_addr(scrolled_at_addr(effective_x>>3, effective_y>>3))];
+                int quadrant_x = (effective_x >> 4) & 1;  // Which 16x16 block in X
+                int quadrant_y = (effective_y >> 4) & 1;  // Which 16x16 block in Y
+                int palette_shift = (quadrant_y << 1) | quadrant_x;  // 0, 1, 2, or 3
+                int palette_type = (palette_data >> (palette_shift * 2)) & 0x03;
 
                 //Get color
                 int color_index = VRAM[color_address(palette_type, palette_index, 0)];
