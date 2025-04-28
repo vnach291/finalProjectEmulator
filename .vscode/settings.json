@@ -11,6 +11,7 @@
         "utility": "cpp",
         "variant": "cpp",
         "numbers": "cpp",
-        "string_view": "cpp"
+        "string_view": "cpp",
+        "iosfwd": "cpp"
     }
 }

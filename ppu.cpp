@@ -298,12 +298,12 @@ uint16_t VRAM_addr(uint16_t addr){
             //one-screen high
             if(addr >= 0x2000 && addr <= 0x3000) new_addr = 0x2400 | (addr%0x400);
             break;
-        case 2:
+        case 3:
             //horizontal
             if(addr >= 0x2400 && addr < 0x2800) new_addr = addr-0x400;
-            if(addr >= 0x2C00 && addr < 0x3000) new_addr = addr-0x400;
+            if(addr >= 0x2800 && addr < 0x3000) new_addr = 0x2400 | (addr%0x400);
             break;
-        case 3:
+        case 2:
             //vertical
             if(addr >= 0x2800 && addr < 0x3000) new_addr = addr-0x800;
             break;

@@ -156,7 +156,6 @@ uint8_t CHR_ROM[0x20000];
 #define CHR_BANK_MODE (bank_regs[0]>>4)
 #define PRG_BANK_MODE ((bank_regs[0]>>2)&0b11)
 void swap_bank(uint8_t i){
-    bank_regs[i] = map_reg;
     switch(i){
         case 1:
             if(CHR_BANK_MODE == 0){
@@ -193,6 +192,7 @@ void swap_bank(uint8_t i){
             }
             break;
     }
+    bank_regs[i] = map_reg;
 }
 
 //Interrupt signals
@@ -1580,6 +1580,61 @@ void INC(int mode){
     }
 }
 
+////////////////////////////aaabbb11 Instructions (partial)
+void ISC(int mode){
+    switch(mode){
+        case 0:
+            //ISC X,ind
+            inc_cycle(8);
+            write_mem(get_X_ind(), read_mem(get_X_ind()) + 1);
+            do_sbc(read_mem(get_X_ind()));
+            pc += 2;
+            break;
+        case 1:
+            //ISC zpg
+            inc_cycle(5);
+            write_mem(get_zpg(), read_mem(get_zpg()) + 1);
+            do_sbc(read_mem(get_zpg()));
+            pc += 2;
+            break;
+        case 3:
+            //ISC abs
+            inc_cycle(6);
+            write_mem(get_abs(), read_mem(get_abs()) + 1);
+            do_sbc(read_mem(get_abs()));
+            pc += 3;
+            break;
+        case 4:
+            //ISC ind,Y
+            inc_cycle(8);
+            write_mem(get_ind_Y(), read_mem(get_ind_Y()) + 1);
+            do_sbc(read_mem(get_ind_Y()));
+            pc += 2;
+            break;
+        case 5:
+            //ISC zpg,X
+            inc_cycle(6);
+            write_mem(get_zpg_X(), read_mem(get_zpg_X()) + 1);
+            do_sbc(read_mem(get_zpg_X()));
+            pc += 2;
+            break;
+        case 6:
+            //ISC abs,Y
+            inc_cycle(7);
+            write_mem(get_abs_Y(), read_mem(get_abs_Y()) + 1);
+            do_sbc(read_mem(get_abs_Y()));
+            pc += 3;
+            break;
+        case 7:
+            //ISC abs,X
+            inc_cycle(7);
+            write_mem(get_abs_X(), read_mem(get_abs_X()) + 1);
+            do_sbc(read_mem(get_abs_X()));
+            pc += 3;
+            break;
+    }
+}
+
 int tester=10;
 /////////////////////////////Execute program
 uint8_t get_processor_status() {
@@ -1796,15 +1851,34 @@ int run(){
                         break;
                 }
                 break;
-        }
 
-        // Print CPU state after executing instruction
-        
+            case 3:
+                switch(inst_a){
+                    case 0:
+                        break;
+                    case 1:
+                        break;
+                    case 2:
+                        break;
+                    case 3:
+                        break;
+                    case 4:
+                        break;
+                    case 5:
+                        break;
+                    case 6:
+                        break;
+                    case 7:
+                        ISC(inst_b);
+                        break;
+                }
+                break;
+        }
 
         //Update instruction/clock
         clock_cycle += inst_cycles;
         
-        //Do PPU updates
+        //Do pause screen
         if(DEBUG_SCREEN) {
             uint8_t* keys = (uint8_t*)SDL_GetKeyboardState(NULL);
             if(keys[SDL_SCANCODE_SPACE]) render_frame();
@@ -1836,6 +1910,7 @@ int run(){
             }
         }
 
+        //Handle test
         if(TEST) {
             tester-=1;
             if(tester <= 0) {
@@ -1863,7 +1938,7 @@ void loadROM(std::string file_name){
         if(i==4) prg_size = c;
         if(i==5) chr_size = c;
         if(i==6) {
-            bank_regs[0] = 2+(c&1);
+            bank_regs[0] = 2+(~c&1);
             mapper = c>>4;
         }
         if(i==7) {
@@ -1899,23 +1974,52 @@ void loadROM(std::string file_name){
         }
         memcpy(&mem[0x8000], &PRG_ROM[0x4000*(prg_size-2)], sizeof(uint8_t) * 0x8000);
         memcpy(&VRAM[0], &CHR_ROM[0], sizeof(uint8_t) * 0x2000);
+        //Try to get save data
+        std::ifstream savefile(file_name.substr(0, file_name.length()-3).append("sav"));
+        if(!savefile.fail()) {
+            for(int i=0x6000; i<0x8000; i++){
+                file.get(c);
+                mem[i] = c;
+            }
+            printf("successfully loaded from save\n");
+        }
     }
     //Initialize pc
     pc = read_pair(RES_addr);
 }
 
+/////////////////////////////Saving
+std::string file_name;
+void saveRAM(){
+    if(mapper != 1) return;
+    std::ofstream file(file_name.substr(0, file_name.length()-3).append("sav"));
+    if (!file.is_open()) {
+        printf("save file couldn't be made/written to\n");
+        return;
+    }
+    //Write from RAM
+    for(int i=0x6000; i<0x8000; i++){
+        file << mem[i];
+    }
+    file.close();
+}
 
+/////////////////////////////main
 int main(int argc, char *argv[]) {
 
     //Load ROM
-    std::string file_name = argv[1];
+    file_name = argv[1];
     loadROM(file_name);
 
     //Set up window
     if(SCREEN) setup_PPU();
+
+    // Register save function
+    atexit(saveRAM);
 
     //Execute
     int exit_type = run();
 
     return exit_type;
 }
+
