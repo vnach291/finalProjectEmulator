@@ -2015,6 +2015,7 @@ int main(int argc, char *argv[]) {
 
     //Load ROM
     file_name = argv[1];
+    file_name.insert(0, "game_ROMs/");
     loadROM(file_name);
 
     //Set up window
