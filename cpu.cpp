@@ -1923,6 +1923,7 @@ int run(){
 }
 
 /////////////////////////////ROM Loading
+bool do_save;
 void loadROM(std::string file_name){
     std::ifstream file(file_name);
     if(file.fail()){
@@ -1939,6 +1940,7 @@ void loadROM(std::string file_name){
         if(i==5) chr_size = c;
         if(i==6) {
             bank_regs[0] = 2+(~c&1);
+            do_save = (c>>1)&1;
             mapper = c>>4;
         }
         if(i==7) {
@@ -1961,7 +1963,7 @@ void loadROM(std::string file_name){
         }
     }
     //SxROM
-    else if(mapper == 1) {
+    else if(mapper == 1 || mapper == 105 || mapper == 155) {
         //PRG ROM
         for(int i=0; i<0x4000*prg_size; i++){
             file.get(c);
@@ -1978,11 +1980,15 @@ void loadROM(std::string file_name){
         std::ifstream savefile(file_name.substr(0, file_name.length()-3).append("sav"));
         if(!savefile.fail()) {
             for(int i=0x6000; i<0x8000; i++){
-                file.get(c);
+                savefile.get(c);
                 mem[i] = c;
             }
             printf("successfully loaded from save\n");
         }
+    }
+    //Randomize RAM
+    for(int i=0; i<0x800; i++){
+        mem[i] = rand()%0x100;
     }
     //Initialize pc
     pc = read_pair(RES_addr);
@@ -1991,7 +1997,7 @@ void loadROM(std::string file_name){
 /////////////////////////////Saving
 std::string file_name;
 void saveRAM(){
-    if(mapper != 1) return;
+    if(!do_save) return;
     std::ofstream file(file_name.substr(0, file_name.length()-3).append("sav"));
     if (!file.is_open()) {
         printf("save file couldn't be made/written to\n");
